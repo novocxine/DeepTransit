@@ -1,4 +1,3 @@
-
 The exploration of space through telescopes like Kepler, TESS, and the Ariel space mission has generated massive amounts of photometric data. Traditionally, astronomers rely on **transit photometry**—monitoring a star’s brightness over time to look for a periodic "dip" caused by a planet crossing in front of it.
 
 However, raw astronomical data is rarely clean. It is heavily corrupted by instrumental systematics, spacecraft jitter, photon (Poisson) noise, and intrinsic stellar variability (like starspots and flares). Identifying a faint, sub-percent dip from a small Earth-sized planet in this "noisy" data is a classic needle-in-a-haystack problem.
