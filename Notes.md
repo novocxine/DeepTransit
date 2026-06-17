@@ -150,3 +150,91 @@ While incredibly precise, the RV method has its own distinct boundaries:
 2. **Stellar Activity Interference:** Stars are turbulent balls of plasma. Features like giant starspots or convective bubbling on the star's surface can mimic the velocity shifts of a planet, occasionally tricking astronomers into identifying "false positive" planets.
     
 3. **Bias Toward Large, Close Worlds:** It is much easier to detect a massive planet orbiting very close to its star (a "Hot Jupiter") because it generates a huge, rapid tug. Detecting an Earth-sized planet at an Earth-like distance requires instruments capable of measuring a stellar crawl of just a few centimeters per second.
+
+# Research Papers 
+
+To build a foundational understanding and prepare your pipeline for the hackathon, you should explore several pivotal research papers. These span from the **original breakthroughs** that introduced deep learning to transit photometry to **recent state-of-the-art frameworks** tackling severe noise and false positives.
+
+The papers are organized by how they fit into your project, complete with direct links to access them.
+
+### 1. The Foundational Breakthrough (The "Dual-View" Paradigm)
+
+Before writing any complex architectures, you should read the paper that started it all. This work established the industry-standard technique of phase-folding a light curve and passing both a **global view** (for context) and a **local view** (zoomed in on the dip) into a Convolutional Neural Network (CNN).
+
+- **Paper:** _Identification of Earth-sized Planets in Kepler Data Using Convolutional Neural Networks_
+    
+- **Key Takeaway:** It demonstrated how 1D CNNs could successfully filter out instrumental artifacts and stellar variability to identify weak signals.
+    
+- **Access Link:** [Read on NASA ADS / arXiv](https://arxiv.org/abs/1712.05044)
+    
+
+### 2. The Current Space Mission Standard (NASA's ExoMiner)
+
+If you want to know what NASA uses for TESS and Kepler datasets, this is it. It expands the dual-view approach by feeding additional diagnostic inputs—such as centroid motion and odd-even flux asymmetries—directly into the neural network to aggressively eliminate eclipsing binaries.
+
+- **Paper:** _ExoMiner++: Enhanced Transit Classification and a New Vetting Catalog for 2-Minute TESS Data_ (Valizadegan et al., 2025)
+    
+- **Key Takeaway:** Highlights how combining multi-source training datasets (Kepler + TESS) allows deep learning models to overcome noisy data regimes and label ambiguity. A very recent update also extends this framework to TESS Full-Frame Images (FFIs) (Martinho et al., 2026).
+    
+- **Access Link:** [Read on arXiv](https://arxiv.org/abs/2502.09790)
+    
+
+### 3. State-of-the-Art (SOTA) Multimodal Fusion
+
+For an advanced layout, look at how modern papers incorporate secondary stellar metadata. Real-world transit deep learning models don't just look at the light curves; they look at the host star's physical properties.
+
+- **Paper:** _ExoNet: Calibrated Multimodal Deep Learning for TESS Exoplanet Candidate Vetting using Phase-Folded Light Curves and Stellar Parameters_ (Islam, 2026)
+    
+- **Key Takeaway:** Introduces a calibrated architecture fusing 1D CNNs with a Multi-Head Attention mechanism over time-series feature maps, while simultaneously feeding an MLP with stellar parameters. It successfully unearthed several compelling, unconfirmed Earth-like targets from noisy TESS streams.
+    
+- **Access Link:** [Download the full PDF on arXiv](https://arxiv.org/pdf/2604.15560)
+    
+
+### 4. Overcoming Data Imbalance with Synthetic Data
+
+Because your hackathon prompt mentions utilizing simulated data for training, this paper is highly relevant to your strategy. It evaluates the exact trade-offs of mixing synthetic parametric curves with real noisy stellar data.
+
+- **Paper:** _Deep learning exoplanets detection by combining real and synthetic data_ (Cuéllar et al., 2022)
+    
+- **Key Takeaway:** Proves that optimizing the precise ratio of simulated transit models embedded into real noise profiles significantly boosts a CNN's sensitivity across a wider range of orbital periods.
+    
+- **Access Link:** [Read on PLOS ONE](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0268199)
+    
+
+### 5. Alternative / Competitor Approaches (Unsupervised Architecture)
+
+What if you don't rely heavily on labeled sets or neural networks? Understanding how unsupervised algorithms handle noisy star clusters will help you write the "assumptions" and "methodology" sections of your hackathon report.
+
+- **Paper:** _Detection of exoplanets from TESS imaging data using unsupervised machine learning techniques_ (Sinha Adhikary, 2026)
+    
+- **Key Takeaway:** Explores dimensional reduction (UMAP) and clustering algorithms (k-medians) to isolate subtle, non-generalized light curve variations from crowded star fields without requiring pre-labeled training classes.
+    
+- **Access Link:** [Read on Frontiers in Astronomy and Space Sciences](https://www.frontiersin.org/journals/astronomy-and-space-sciences/articles/10.3389/fspas.2026.1800321/full)
+    
+
+## 💡 Quick Reading Strategy for the Hackathon:
+
+Don't read all of these cover-to-cover during the competition!
+
+1. Open **ExoNet (2026)** and look closely at its architectural diagram to understand how to design your network inputs.
+    
+2. Open **Cuéllar et al. (2022)** to see the math/logic behind injecting synthetic transits into real noise.
+    
+3. Use the **ExoMiner++ (2025)** paper to grab ideas on how to cleanly explain your evaluation metrics and diagnostic output summaries to the judges.
+    
+
+## References
+
+Cuéllar, S., Granados, P., Fabregas, E., Curé, M., Vargas, H., Dormido-Canto, S., & Farias, G. (2022). Deep learning exoplanets detection by combining real and synthetic data. _PLOS ONE_, _17_(5), e0268199. [https://doi.org/10.1371/journal.pone.0268199](https://doi.org/10.1371/journal.pone.0268199)
+
+Cited by: 33
+
+Islam, M. R. (2026). ExoNet: Calibrated multimodal deep learning for TESS exoplanet candidate vetting using phase-folded light curves, stellar parameters. _arXiv preprint arXiv:2604.15560_. [https://arxiv.org/pdf/2604.15560](https://arxiv.org/pdf/2604.15560)
+
+Martinho, M. J. S., Valizadegan, H., Jenkins, J. M., Caldwell, D. A., Twicken, J. D., Tofflemire, B., & Jafariyazani, M. (2026). ExoMiner++ 2.0: Vetting TESS full-frame image transit signals. _arXiv preprint arXiv:2601.14877_. [https://arxiv.org/abs/2601.14877](https://arxiv.org/abs/2601.14877)
+
+Cited by: 1
+
+Sinha Adhikary, A. (2026). Detection of exoplanets from TESS imaging data using unsupervised machine learning techniques. _Frontiers in Astronomy and Space Sciences_, _13_, 1800321. [https://www.frontiersin.org/journals/astronomy-and-space-sciences/articles/10.3389/fspas.2026.1800321/full](https://www.frontiersin.org/journals/astronomy-and-space-sciences/articles/10.3389/fspas.2026.1800321/full)
+
+Valizadegan, H., Martinho, M. J. S., Jenkins, J. M., Twicken, J. D., Caldwell, D. A., Maynard, P., Wei, H., Zhong, W., Yates, C., Donald, S., Collins, K. A., Latham, D., Barkaoui, K., Calkins, M. L., Carden, K., Chazov, N., Esquerdo, G. A., Guillot, T., Krushinsky, V., Nowak, G., Rackham, B. V., Triaud, A., Schwarz, R. P., Stephens, D., & Stockdale, C. (2025). ExoMiner++: Enhanced transit classification and a new vetting catalog for 2-minute TESS data. _arXiv preprint arXiv:2502.09790_. [https://doi.org/10.48550/arxiv.2502.09790](https://www.google.com/search?q=https%3A%2F%2Fdoi.org%2F10.48550%2Farxiv.2502.09790)
