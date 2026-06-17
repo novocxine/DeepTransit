@@ -238,3 +238,100 @@ Cited by: 1
 Sinha Adhikary, A. (2026). Detection of exoplanets from TESS imaging data using unsupervised machine learning techniques. _Frontiers in Astronomy and Space Sciences_, _13_, 1800321. [https://www.frontiersin.org/journals/astronomy-and-space-sciences/articles/10.3389/fspas.2026.1800321/full](https://www.frontiersin.org/journals/astronomy-and-space-sciences/articles/10.3389/fspas.2026.1800321/full)
 
 Valizadegan, H., Martinho, M. J. S., Jenkins, J. M., Twicken, J. D., Caldwell, D. A., Maynard, P., Wei, H., Zhong, W., Yates, C., Donald, S., Collins, K. A., Latham, D., Barkaoui, K., Calkins, M. L., Carden, K., Chazov, N., Esquerdo, G. A., Guillot, T., Krushinsky, V., Nowak, G., Rackham, B. V., Triaud, A., Schwarz, R. P., Stephens, D., & Stockdale, C. (2025). ExoMiner++: Enhanced transit classification and a new vetting catalog for 2-minute TESS data. _arXiv preprint arXiv:2502.09790_. [https://doi.org/10.48550/arxiv.2502.09790](https://www.google.com/search?q=https%3A%2F%2Fdoi.org%2F10.48550%2Farxiv.2502.09790)
+
+
+# Calculating 
+
+For your hackathon project, estimating the **Orbital Period**, **Transit Duration**, and **Transit Depth** is where you translate raw, pixel-level fluctuations into verifiable physical properties of an alien world.
+
+To satisfy the requirements of your challenge, here is exactly how your pipeline should mathematically model, fit, and extract these three core parameters from a science dataset.
+
+## 1. Orbital Period ($P$)
+
+The orbital period is the duration of one complete orbit (the planet's year). It is measured as the exact time interval between the midpoints of consecutive transits.
+
+- **How the Pipeline Extracts It:** Before running deep learning models, your pipeline applies a **Box Least Squares (BLS)** periodogram to the cleaned light curve. BLS wraps the time-series data at thousands of trial frequencies. When it hits the true orbital period, the periodic dips align perfectly, creating a massive statistical spike in "power."
+    
+- **The Mathematical Fit:** The detected period allows you to convert the light curve from absolute time (Days) into **Phase space** (ranging from $-0.5$ to $+0.5$), effectively folding all individual transits on top of each other into a single, clean master profile.
+    
+
+## 2. Transit Depth ($\delta$)
+
+Transit depth is the maximum drop in the star's apparent brightness when the planet is fully silhouetted against the stellar disk.
+
+- **The Underlying Physics:** To a first-order approximation (assuming a uniformly bright star), the depth is strictly a geometric ratio of the cross-sectional areas:
+    
+    $$\delta \approx \left(\frac{R_p}{R_*}\right)^2$$
+    
+    Where $R_p$ is the radius of the planet and $R_*$ is the radius of the star. For example, a Jupiter-sized planet creates a deep $\sim 1\%$ dip ($\delta = 0.01$), whereas an Earth-sized planet creates a shallow $\sim 0.01\%$ dip ($\delta = 0.0001$).
+    
+- **The Complication (Limb Darkening):** Real stars are not flat, uniformly bright disks; they are spheres of glowing gas that appear darker at their outer edges (limbs). This causes the bottom of the transit curve to look slightly curved or U-shaped rather than a flat box.
+    
+- **How the Pipeline Extracts It:** Your pipeline fits an analytical model (like `batman`) implementing a **Quadratic Limb Darkening Law**:
+    
+    $$I(\mu) = 1 - u_1(1 - \mu) - u_2(1 - \mu)^2$$
+    
+    By fitting this equation via non-linear least squares optimization (`scipy.optimize.curve_fit`), the pipeline solves for the exact true value of $\frac{R_p}{R_*}$ while accounting for the star's curved edge gradient.
+    
+
+## 3. Transit Duration ($T_{14}$)
+
+Transit duration represents the total time elapsed from the moment the planet first touches the outer edge of the star (Ingress, point $t_1$) to the moment it completely breaks contact on the other side (Egress, point $t_4$).
+
+- **The Underlying Physics:** Total duration ($T_{14}$) depends heavily on the planet's orbital speed and its **Impact Parameter ($b$)**—the minimum projected distance between the center of the planet and the center of the star during mid-transit.
+    
+    - A central transit ($b=0$) cuts directly across the star's equator, yielding the longest possible duration.
+        
+    - A grazing transit ($b \approx 1$) cuts across the upper or lower edge, resulting in a short, V-shaped duration.
+        
+- **The Mathematical Equation:** For a circular orbit, the analytical expression for duration is modeled as:
+    
+    $$T_{14} = \frac{P}{\pi} \arcsin \left( \frac{R_*} {a} \frac{\sqrt{(1 + R_p/R_*)^2 - b^2}}{\sin i} \right)$$
+    
+    Where $a$ is the semi-major axis (orbital distance) and $i$ is the orbital inclination angle.
+    
+- **How the Pipeline Extracts It:** By supplying your light-curve fitting algorithm with the period ($P$) and depth ($\delta$) found in previous steps, it optimizes the free parameters $a/R_*$ (semi-major axis scaled to stellar radius) and $b$. Once those parameters converge on the minimum $\chi^2$ (chi-squared) error surface, the final analytical duration $T_{14}$ is calculated directly from the best-fit geometry.
+    
+
+## 💡 Code Blueprint: The Parameter Fitting Loop
+
+In your pipeline script, this is conceptually how you combine your tools to estimate these values and satisfy the **confidence level** criteria:
+
+Python
+
+```
+import numpy as np
+import batman
+from scipy.optimize import curve_fit
+
+# 1. Define the analytical light curve function using the batman package
+def transit_model(time, t0, period, rp_over_rs, a_over_rs, inc):
+    params = batman.TransitParams()
+    params.t0 = t0                 # Mid-transit time
+    params.per = period            # Orbital Period
+    params.rp = rp_over_rs         # Transit Depth factor (Rp/Rs)
+    params.a = a_over_rs           # Semi-major axis over stellar radius
+    params.inc = inc               # Inclination
+    params.ecc = 0.0               # Assume circular orbit for hackathon speed
+    params.w = 90.0
+    params.u = [0.1, 0.3]          # Standard TESS linear & quadratic limb darkening coefficients
+    params.limb_dark = "quadratic"
+    
+    m = batman.TransitModel(params, time)
+    return m.light_curve(params)
+
+# 2. Fit the noisy, phase-folded data using Scipy
+# initial_guesses = [estimated_t0, bls_period, np.sqrt(bls_depth), 10.0, 90.0]
+popt, pcov = curve_fit(transit_model, phase_time, normalized_flux, p0=initial_guesses)
+
+# 3. Extract the parameters and their uncertainties (Confidence Levels)
+per_fit, depth_factor_fit = popt[1], popt[2]
+per_err, depth_factor_err = np.sqrt(np.diag(pcov))[1], np.sqrt(np.diag(pcov))[2]
+
+print(f"Estimated Period: {per_fit} +/- {per_err} days")
+print(f"Estimated Transit Depth (Rp/Rs)^2: {depth_factor_fit**2}")
+```
+
+### For Your Hackathon Report:
+
+Make sure to explain that your **uncertainties/confidence levels** are calculated directly from the **covariance matrix (`pcov`)** outputted by your curve-fitting algorithm. Taking the square root of the diagonal elements of this matrix gives you the formal 1-$\sigma$ standard error bounds for every single parameters estimated.
