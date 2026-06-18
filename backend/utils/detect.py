@@ -1,0 +1,167 @@
+"""
+utils/detect.py
+BLS period search using astropy.timeseries.BoxLeastSquares.
+"""
+import logging
+import numpy as np
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+
+def run_bls(
+    time: np.ndarray,
+    flux: np.ndarray,
+    flux_err: np.ndarray,
+    min_period: float = 0.5,
+    max_period: float = 27.0,
+    n_periods: int = 5000,
+    duration_grid: Optional[np.ndarray] = None,
+) -> dict:
+    """
+    Run Box Least Squares periodogram on detrended light curve.
+
+    Returns dict with:
+        period, duration, t0, depth, depth_snr, power_peak,
+        period_grid, power_grid, odd_even_ratio, secondary_depth
+    """
+    try:
+        from astropy.timeseries import BoxLeastSquares
+    except ImportError as e:
+        raise ImportError("astropy is required: pip install astropy") from e
+
+    # Convert flux to relative flux if not already (centered near 1.0)
+    flux_med = np.nanmedian(flux)
+    if abs(flux_med - 1.0) > 0.1:
+        flux_rel = flux / flux_med
+        flux_err_rel = flux_err / flux_med
+    else:
+        flux_rel = flux
+        flux_err_rel = flux_err
+
+    if duration_grid is None:
+        # Transit durations from 1 hr to 12 hr
+        duration_grid = np.array([1 / 24, 2 / 24, 3 / 24, 4 / 24, 6 / 24, 8 / 24, 12 / 24])
+
+    period_grid = np.linspace(min_period, max_period, n_periods)
+
+    logger.info(
+        f"Running BLS: {n_periods} periods [{min_period:.1f}, {max_period:.1f}] d, "
+        f"{len(duration_grid)} duration trials"
+    )
+
+    bls = BoxLeastSquares(time, flux_rel, dy=flux_err_rel)
+    periodogram = bls.power(period_grid, duration_grid, objective="snr")
+
+    # Best period
+    best_idx = np.argmax(periodogram.power)
+    best_period = float(periodogram.period[best_idx])
+    best_power = float(periodogram.power[best_idx])
+
+    # Get precise transit parameters at best period
+    stats = bls.compute_stats(
+        float(periodogram.period[best_idx]),
+        float(periodogram.duration[best_idx]),
+        float(periodogram.transit_time[best_idx]),
+    )
+
+    depth = float(stats["depth"][0]) if hasattr(stats["depth"], "__len__") else float(stats["depth"])
+    depth_err = float(stats["depth_err"][0]) if hasattr(stats["depth_err"], "__len__") else float(stats["depth_err"])
+    duration = float(periodogram.duration[best_idx])
+    t0 = float(periodogram.transit_time[best_idx])
+
+    snr = depth / depth_err if depth_err > 0 else 0.0
+
+    # Odd-even ratio: compare transit depths at odd vs even transits
+    odd_even_ratio = _compute_odd_even_ratio(time, flux_rel, best_period, t0, duration)
+
+    # Secondary eclipse search at phase 0.5
+    secondary_depth = _search_secondary(time, flux_rel, best_period, t0, duration)
+
+    logger.info(
+        f"BLS result: period={best_period:.4f} d, depth={depth:.6f}, "
+        f"SNR={snr:.2f}, odd_even={odd_even_ratio:.3f}"
+    )
+
+    return {
+        "period": best_period,
+        "duration": duration,
+        "t0": t0,
+        "depth": depth,
+        "depth_err": depth_err,
+        "snr": float(snr),
+        "power_peak": best_power,
+        "period_grid": period_grid.tolist(),
+        "power_grid": periodogram.power.tolist(),
+        "odd_even_ratio": float(odd_even_ratio),
+        "secondary_depth": float(secondary_depth),
+        "n_transits": int(stats.get("ntransits", 0)) if "ntransits" in stats else _count_transits(time, best_period, t0),
+    }
+
+
+def _compute_odd_even_ratio(
+    time: np.ndarray,
+    flux: np.ndarray,
+    period: float,
+    t0: float,
+    duration: float,
+) -> float:
+    """
+    Compare depths of odd vs even transits. High ratio → likely eclipsing binary.
+    Returns |depth_odd - depth_even| / (depth_odd + depth_even)
+    """
+    in_transit = np.zeros(len(time), dtype=int)
+    half_dur = duration / 2.0
+    n = np.round((time - t0) / period).astype(int)
+    phase = time - (t0 + n * period)
+    in_transit_mask = np.abs(phase) < half_dur
+
+    if in_transit_mask.sum() < 4:
+        return 0.0
+
+    odd_depths, even_depths = [], []
+    for transit_n in np.unique(n[in_transit_mask]):
+        mask = in_transit_mask & (n == transit_n)
+        if mask.sum() < 2:
+            continue
+        depth_here = 1.0 - float(np.nanmedian(flux[mask]))
+        if transit_n % 2 == 0:
+            even_depths.append(depth_here)
+        else:
+            odd_depths.append(depth_here)
+
+    if not odd_depths or not even_depths:
+        return 0.0
+
+    d_odd = float(np.median(odd_depths))
+    d_even = float(np.median(even_depths))
+    total = abs(d_odd) + abs(d_even)
+    if total == 0:
+        return 0.0
+    return abs(d_odd - d_even) / total
+
+
+def _search_secondary(
+    time: np.ndarray,
+    flux: np.ndarray,
+    period: float,
+    t0: float,
+    duration: float,
+) -> float:
+    """Search for a secondary eclipse at phase 0.5 (half-period offset)."""
+    t0_secondary = t0 + period / 2.0
+    phase = ((time - t0_secondary) % period) / period
+    phase[phase > 0.5] -= 1.0
+    in_sec = np.abs(phase) < (duration / period)
+    out_sec = (np.abs(phase) > 2 * duration / period) & (np.abs(phase) < 0.4)
+
+    if in_sec.sum() < 2 or out_sec.sum() < 2:
+        return 0.0
+
+    depth_sec = float(np.nanmedian(flux[out_sec])) - float(np.nanmedian(flux[in_sec]))
+    return max(0.0, depth_sec)
+
+
+def _count_transits(time: np.ndarray, period: float, t0: float) -> int:
+    t_span = time[-1] - time[0]
+    return max(1, int(t_span / period))

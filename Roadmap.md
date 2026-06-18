@@ -83,3 +83,5 @@ The prompt specifically requires you to estimate **Transit Duration** and **Tran
 - `batman-package`: For analytical transit modeling.
     
 - `matplotlib`: For the required visualizations of the light curves overlayed with your model's predictions.
+
+

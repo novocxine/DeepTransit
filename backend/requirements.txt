@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+lightkurve
+astropy
+wotan
+batman-package
+lmfit
+xgboost
+scikit-learn
+numpy
+pandas
+scipy
+matplotlib
+tqdm
+python-multipart
+sse-starlette
+aiofiles

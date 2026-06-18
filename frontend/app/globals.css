@@ -1,0 +1,262 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@import "tailwindcss";
+@config "../tailwind.config.ts";
+
+/* ── Base ──────────────────────────────────────────────────────────────────── */
+:root {
+  --bg-primary:    #0d1117;
+  --bg-secondary:  #161b22;
+  --bg-tertiary:   #21262d;
+  --accent:        #58a6ff;
+  --accent-dim:    #1f6feb;
+  --planet:        #3fb950;
+  --eb:            #f85149;
+  --blend:         #e3b341;
+  --muted:         #8b949e;
+  --text:          #c9d1d9;
+  --border:        #30363d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text);
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-secondary); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* ── Selection ─────────────────────────────────────────────────────────────── */
+::selection { background: rgba(88, 166, 255, 0.25); color: #fff; }
+
+/* ── Star field canvas ─────────────────────────────────────────────────────── */
+.star-field-canvas {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Glass card ────────────────────────────────────────────────────────────── */
+.glass-card {
+  background: rgba(22, 27, 34, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(48, 54, 61, 0.8);
+  border-radius: 12px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.glass-card:hover {
+  border-color: rgba(88, 166, 255, 0.3);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(88,166,255,0.15);
+}
+
+/* ── Glow text ─────────────────────────────────────────────────────────────── */
+.glow-text {
+  text-shadow: 0 0 20px rgba(88, 166, 255, 0.5);
+}
+
+.glow-text-planet { text-shadow: 0 0 20px rgba(63, 185, 80, 0.5); }
+.glow-text-eb { text-shadow: 0 0 20px rgba(248, 81, 73, 0.5); }
+.glow-text-blend { text-shadow: 0 0 20px rgba(227, 179, 65, 0.5); }
+
+/* ── Mono data ──────────────────────────────────────────────────────────────── */
+.mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
+
+/* ── Section divider ───────────────────────────────────────────────────────── */
+.space-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+  margin: 1.5rem 0;
+}
+
+/* ── Animated border gradient ──────────────────────────────────────────────── */
+.border-glow {
+  position: relative;
+}
+.border-glow::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, var(--accent-dim), transparent, var(--accent));
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.border-glow:hover::before { opacity: 1; }
+
+/* ── Input styles ──────────────────────────────────────────────────────────── */
+.space-input {
+  background: rgba(22, 27, 34, 0.9);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+}
+.space-input::placeholder { color: var(--muted); }
+.space-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+}
+
+/* ── Button ────────────────────────────────────────────────────────────────── */
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent-dim), var(--accent));
+  color: #fff;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btn-primary:hover {
+  filter: brightness(1.15);
+  box-shadow: 0 0 20px rgba(88, 166, 255, 0.4);
+  transform: translateY(-1px);
+}
+.btn-primary:active { transform: translateY(0); filter: brightness(0.95); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btn-ghost:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
+}
+
+/* ── Tab styles ────────────────────────────────────────────────────────────── */
+.tab-active {
+  color: var(--accent);
+  border-bottom: 2px solid var(--accent);
+}
+.tab-inactive {
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+}
+.tab-inactive:hover { color: var(--text); }
+
+/* ── Scanning animation ────────────────────────────────────────────────────── */
+.scan-line {
+  position: absolute;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: scan 2s linear infinite;
+}
+
+/* ── Plotly dark theme override ────────────────────────────────────────────── */
+.js-plotly-plot .plotly .modebar { display: none !important; }
+.js-plotly-plot .plotly .bg { fill: #0d1117 !important; }
+
+/* ── Progress bar ──────────────────────────────────────────────────────────── */
+.progress-bar {
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+.progress-fill-planet {
+  background: linear-gradient(90deg, #2ea043, var(--planet));
+}
+.progress-fill-eb {
+  background: linear-gradient(90deg, #b62324, var(--eb));
+}
+.progress-fill-blend {
+  background: linear-gradient(90deg, #9a6700, var(--blend));
+}
+
+/* ── Badge ─────────────────────────────────────────────────────────────────── */
+.classification-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 1rem;
+  border-radius: 9999px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  letter-spacing: 0.02em;
+  border: 1px solid;
+}
+
+/* ── SVG gauge animation ───────────────────────────────────────────────────── */
+.gauge-arc {
+  stroke-linecap: round;
+  transition: stroke-dashoffset 1.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ── Fade-in utility ───────────────────────────────────────────────────────── */
+.fade-in {
+  animation: fadeUp 0.5s ease forwards;
+}
+.fade-in-delay-1 { animation-delay: 0.1s; opacity: 0; }
+.fade-in-delay-2 { animation-delay: 0.2s; opacity: 0; }
+.fade-in-delay-3 { animation-delay: 0.3s; opacity: 0; }
+.fade-in-delay-4 { animation-delay: 0.4s; opacity: 0; }
+
+/* ── Waveform ──────────────────────────────────────────────────────────────── */
+.waveform-line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: drawLine 3s ease forwards;
+}
+
+/* ── Table ─────────────────────────────────────────────────────────────────── */
+.space-table th {
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.space-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(48,54,61,0.5);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+}
+.space-table tr:last-child td { border-bottom: none; }
+.space-table tr:hover td { background: rgba(88,166,255,0.04); }
+
+/* ── Responsive sidebar layout ─────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .analyze-layout {
+    flex-direction: column !important;
+  }
+  .analyze-sidebar {
+    width: 100% !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--border) !important;
+  }
+}

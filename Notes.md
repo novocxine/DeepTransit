@@ -335,3 +335,76 @@ print(f"Estimated Transit Depth (Rp/Rs)^2: {depth_factor_fit**2}")
 ### For Your Hackathon Report:
 
 Make sure to explain that your **uncertainties/confidence levels** are calculated directly from the **covariance matrix (`pcov`)** outputted by your curve-fitting algorithm. Taking the square root of the diagonal elements of this matrix gives you the formal 1-$\sigma$ standard error bounds for every single parameters estimated.
+
+
+
+## 📄 Summary of the Papers
+
+### 1. Shallue & Vanderburg (2018) — _The Dual-View CNN_
+
+- **The Core Idea:** This was the pioneer paper that proved Deep Learning could automate exoplanet vetting. It introduced a 1D Convolutional Neural Network (CNN) that takes two distinct inputs from a single light curve: a **Global View** (the entire orbital phase to detect secondary star eclipses) and a **Local View** (zoomed in tightly on the transit dip to inspect geometric shape).
+    
+- **What is Left for Development:** The original model struggled heavily with highly crowded stellar fields (where background star blendings alter the light curves) and was highly prone to false positives caused by severe, non-linear instrumental noise.
+    
+
+### 2. Valizadegan et al. (2025/2026) — _ExoMiner++_
+
+- **The Core Idea:** NASA's state-of-the-art framework. ExoMiner++ moves beyond just looking at the light curve. It adds specialized diagnostic inputs into the neural network, such as **centroid motion** (tracking if the star physically shifts on the camera pixels during a transit, indicating a background eclipsing binary) and odd-even transit depth consistency checking.
+    
+- **What is Left for Development:** ExoMiner++ is computationally heavy and requires massive, deeply curated expert-labeled training catalogs. Extending it efficiently to massive, raw Full-Frame Images (FFIs) without severe computational overhead remains an active area of optimization.
+    
+
+### 3. ExoNet (Multimodal Fusion)
+
+- **The Core Idea:** A cutting-edge 2026 approach that utilizes **Multimodal Machine Learning**. It combines a 1D CNN + Multi-Head Attention mechanism to parse the light curve time-series data while simultaneously feeding a separate Multi-Layer Perceptron (MLP) with physical metadata about the host star (e.g., stellar radius, mass, effective temperature).
+    
+- **What is Left for Development:** The attention weights and multimodal deep layers introduce cross-feature complexity, making it difficult to extract precise physical parameter error margins (uncertainty quantification) out of the neural network natively.
+    
+
+### 4. Cuéllar et al. (2022) — _Synthetic Data Injectors_
+
+- **The Core Idea:** Addresses the extreme data imbalance in astrophysics (millions of stars, but very few real planets). The authors created an automated mathematical framework that injects simulated planet transit models directly into real, verified "clean" stellar noise backgrounds to create balanced training sets.
+    
+- **What is Left for Development:** The synthetic transits are mathematically "perfect" models. The paper notes a performance drop when models trained on this data confront unpredictable, complex real-world variables like massive rotating starspots or irregular spacecraft thruster firing jitter.
+    
+
+### 5. Sinha Adhikary (2026) — _Unsupervised Dimensionality Reduction_
+
+- **The Core Idea:** An alternative to deep learning that doesn't require labeled data. It uses unsupervised machine learning—specifically **UMAP** (Uniform Manifold Approximation and Projection) and **k-medians clustering**—to group light curves based on mathematical similarities, automatically isolating abnormal "dips" from normal stellar noise.
+    
+- **What is Left for Development:** Unsupervised pipelines can cluster similar signals together, but they cannot definitively classify _why_ a signal is dipping. A human or an auxiliary supervised classifier is still required to determine if a cluster represents a true planet or an instrumental glitch.
+    
+
+## 🛠️ What Parts You Are Going to Use in Your Project
+
+To build a robust pipeline within a hackathon timeframe, you are going to strategically "copy the homework" of these papers by extracting their best elements:
+
+```
+[Raw Data Input]
+       │
+       ▼
+ ──► Method from Cuéllar (2022): Mix real TESS data with synthetic transits to balance your training dataset.
+       │
+       ▼
+ ──► Method from Shallue & Vanderburg (2018): Pass both a "Global" and "Local" phase-folded view to your 1D CNN.
+       │
+       ▼
+ ──► Method from Valizadegan (2025): Feed basic stellar parameters into your pipeline to help rule out deep binary eclipses.
+       │
+       ▼
+[Final Classification & Parametric Fit Output]
+```
+
+### 1. The Dataset Strategy (From Cuéllar et al., 2022)
+
+- **Application:** You will use the curated training dataset provided by your hackathon challenge. If you find that you don't have enough exoplanet examples to train your neural network, you will use the `batman` package to simulate synthetic transits and inject them into noisy, flat light curves to quickly bolster your training dataset size.
+    
+
+### 2. The Input Architecture (From Shallue & Vanderburg, 2018)
+
+- **Application:** When designing the input shape for your 1D CNN in TensorFlow or PyTorch, you will use the **Dual-View approach**. You will write your data-processing code to generate two arrays for each target star: one vector of 200 data points mapping the entire phase-folded orbit (Global), and one vector of 200 data points tightly focused only on the transit window (Local).
+    
+
+### 3. Vetting Out Crowded Field Blends (From Valizadegan et al., 2025 & Islam, 2026)
+
+- **Application:** The challenge details state that your dataset has significant contaminations from stellar blending in crowded fields. You will use the insight from _ExoNet_ and _ExoMiner++_ by extracting simple tabular metadata (like the star's magnitude and radius from the TESS Input Catalog). If your 1D CNN sees a shallow dip, but the metadata shows the star is in an incredibly dense field or is massive, your logic can flags it as a potential "blend" or "eclipsing binary" rather than an Earth-sized planet.
