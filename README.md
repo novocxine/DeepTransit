@@ -1,4 +1,4 @@
-# ExoLens AI: Automated Exoplanet Detection & Classification Pipeline
+# AstroDetect  AI: Automated Exoplanet Detection & Classification Pipeline
 
 An end-to-end, AI-driven data analysis pipeline designed to detect and classify extremely faint exoplanet transit signals from noisy astronomical time-series data (TESS). ExoLens handles severe noise contaminations, such as stellar blending, instrumental artifacts, and intrinsic stellar variability, to accurately isolate true exoplanets from false positives.
 
