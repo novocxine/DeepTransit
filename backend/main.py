@@ -247,8 +247,8 @@ async def get_lightcurve(tic_id: str, sector: Optional[int] = Query(None)):
 
 
 # ── Report image ──────────────────────────────────────────────────────────────
-@app.get("/api/report/{tic_id}", tags=["Data"])
-async def get_report(tic_id: str, sector: int = Query(1)):
+@app.get("/api/plot/{tic_id}", tags=["Data"])
+async def get_plot(tic_id: str, sector: int = Query(1)):
     """Serve the matplotlib report PNG."""
     clean = _tic_clean(tic_id)
     report_path = os.path.join(OUTPUTS_DIR, f"TIC{clean}_s{sector}.png")

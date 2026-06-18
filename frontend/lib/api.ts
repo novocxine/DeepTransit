@@ -154,7 +154,7 @@ export async function getBatchStatus(batchId: string) {
 }
 
 export function getReportUrl(ticId: string, sector: number = 1) {
-  return `${API_BASE}/api/report/${ticId}?sector=${sector}`;
+  return `${API_BASE}/api/plot/${ticId}?sector=${sector}`;
 }
 
 // ── SSE progress listener ──────────────────────────────────────────────────────

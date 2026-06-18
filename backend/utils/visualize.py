@@ -112,11 +112,16 @@ def plot_full_report(
 
     # ── Panel 1: Raw light curve ──────────────────────────────────────────
     _style_ax(ax_raw, "Raw TESS Light Curve", "Time (BTJD)", "Flux (e⁻/s)")
+    # Remove NaNs to prevent matplotlib from silently failing to render
+    valid_raw = ~(np.isnan(time_raw) | np.isnan(flux_raw))
+    t_r = time_raw[valid_raw]
+    f_r = flux_raw[valid_raw]
     # Downsample for speed
-    step = max(1, len(time_raw) // 3000)
-    ax_raw.scatter(time_raw[::step], flux_raw[::step],
+    step = max(1, len(t_r) // 3000)
+    ax_raw.scatter(t_r[::step], f_r[::step],
                    s=0.8, alpha=0.5, color=COLORS["raw"], rasterized=True)
-    ax_raw.set_xlim(time_raw[0], time_raw[-1])
+    if len(t_r) > 0:
+        ax_raw.set_xlim(t_r[0], t_r[-1])
 
     # ── Panel 2: Detrended light curve ───────────────────────────────────
     _style_ax(ax_flat, "Detrended Light Curve", "Time (BTJD)", "Relative Flux")

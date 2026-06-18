@@ -50,7 +50,17 @@ def download_lightcurve(
 
     # Pick the first (or sector-matched) result
     target = results[0]
-    logger.info(f"Downloading: {target.mission[0]} sector {target.sector[0]}")
+    
+    # Safely get mission/sector string for logging
+    mission_str = target.mission[0] if hasattr(target, "mission") else "Unknown"
+    if hasattr(target, "sector") and target.sector is not None and len(target.sector) > 0:
+        sector_str = f"sector {target.sector[0]}"
+    elif hasattr(target, "sequence_number") and target.sequence_number is not None and len(target.sequence_number) > 0:
+        sector_str = f"sector {target.sequence_number[0]}"
+    else:
+        sector_str = ""
+        
+    logger.info(f"Downloading: {mission_str} {sector_str}".strip())
 
     lc_collection = target.download()
     if lc_collection is None:
@@ -74,7 +84,15 @@ def download_lightcurve(
         # Estimate from scatter
         flux_err = np.full_like(flux, float(np.nanstd(flux)) * 0.1)
 
-    actual_sector = int(target.sector[0]) if hasattr(target, "sector") else (sector or 0)
+    if hasattr(target, "sector") and target.sector is not None and len(target.sector) > 0:
+        actual_sector = int(target.sector[0])
+    elif hasattr(target, "sequence_number") and target.sequence_number is not None and len(target.sequence_number) > 0:
+        try:
+            actual_sector = int(target.sequence_number[0])
+        except (ValueError, TypeError):
+            actual_sector = sector or 0
+    else:
+        actual_sector = sector or 0
 
     logger.info(
         f"Downloaded {len(time)} cadences for TIC {tic_id} "

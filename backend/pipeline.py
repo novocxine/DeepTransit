@@ -151,7 +151,7 @@ async def run_pipeline(tic_id: str, sector: Optional[int], job_id: str) -> dict:
             "bls": bls_result,
             "fit": fit_result,
             "report_path": report_path,
-            "report_url": f"/api/report/{tic_id}?sector={actual_sector}",
+            "report_url": f"/api/plot/{tic_id}?sector={actual_sector}",
             "lightcurve": {
                 "time": time_flat.tolist(),
                 "flux": flux_flat.tolist(),

@@ -43,7 +43,9 @@ def run_bls(
         # Transit durations from 1 hr to 12 hr
         duration_grid = np.array([1 / 24, 2 / 24, 3 / 24, 4 / 24, 6 / 24, 8 / 24, 12 / 24])
 
-    period_grid = np.linspace(min_period, max_period, n_periods)
+    # Astropy BLS strictly requires max duration < min period
+    safe_min_period = max(min_period, float(np.max(duration_grid)) + 0.01)
+    period_grid = np.linspace(safe_min_period, max_period, n_periods)
 
     logger.info(
         f"Running BLS: {n_periods} periods [{min_period:.1f}, {max_period:.1f}] d, "
@@ -65,8 +67,13 @@ def run_bls(
         float(periodogram.transit_time[best_idx]),
     )
 
-    depth = float(stats["depth"][0]) if hasattr(stats["depth"], "__len__") else float(stats["depth"])
-    depth_err = float(stats["depth_err"][0]) if hasattr(stats["depth_err"], "__len__") else float(stats["depth_err"])
+    # astropy BoxLeastSquares.compute_stats returns a tuple for depth: (depth, depth_err)
+    if isinstance(stats.get("depth"), tuple) and len(stats["depth"]) == 2:
+        depth = float(stats["depth"][0])
+        depth_err = float(stats["depth"][1])
+    else:
+        depth = float(stats["depth"][0]) if hasattr(stats.get("depth"), "__len__") else float(stats.get("depth", 0.0))
+        depth_err = 0.0
     duration = float(periodogram.duration[best_idx])
     t0 = float(periodogram.transit_time[best_idx])
 
