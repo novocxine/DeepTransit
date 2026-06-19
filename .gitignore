@@ -16,6 +16,8 @@ frontend/build/
 
 # Backend Caches & Outputs
 backend/outputs/
+outputs/
+*.png
 backend/lightcurves/
 backend/nohup.out
 

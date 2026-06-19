@@ -12,6 +12,26 @@ An end-to-end, AI-driven data analysis pipeline designed to detect and classify 
 
 ---
 
+## 🛠️ Tech Stack
+
+### Frontend (User Interface)
+* **[Next.js](https://nextjs.org/) & React:** The core framework used for building a fast, interactive, and modern single-page application.
+* **[Tailwind CSS](https://tailwindcss.com/):** A utility-first CSS framework used for styling the application, ensuring a responsive and cohesive "space-themed" design system.
+* **[Framer Motion](https://www.framer.com/motion/):** A physics-based animation library used to create smooth transitions, layout changes, and interactive UI micro-animations (like the scanning radar).
+* **[Plotly.js](https://plotly.com/javascript/):** A graphing library used to render the highly interactive "Light Curve" and "Phase Fold" charts, allowing users to zoom, pan, and inspect thousands of data points without lag.
+* **[Three.js](https://threejs.org/) & [@react-three/fiber](https://docs.pmnd.rs/react-three-fiber):** Used to power the 3D **Orbit View** tab. It calculates and renders the tilted, interactive 3D representation of the exoplanet's orbit in real-time.
+
+### Backend (Data Pipeline & Astronomy)
+* **[Python 3](https://www.python.org/) & [FastAPI](https://fastapi.tiangolo.com/):** A modern, high-performance web framework for building the backend API that serves data to the frontend and manages asynchronous pipeline jobs.
+* **[Lightkurve](https://docs.lightkurve.org/):** A package for analyzing astronomical flux time series data, specifically used to download and parse raw Kepler and TESS light curves directly from NASA MAST.
+* **[Wōtan](https://github.com/hippke/wotan):** An algorithm suite used in the preprocessing stage to remove long-term stellar trends, instrumental artifacts, and noise from the raw light curve (detrending).
+* **[Astropy](https://www.astropy.org/):** The core library for astronomy in Python. Used for time conversions (like converting system time to BTJD) and astronomical coordinate logic.
+* **[batman](https://lkreidberg.github.io/batman/docs/html/index.html):** (Bad-Ass Transit Model cAlculatioN) A package used to generate theoretical, analytical transit light curves based on physical parameters (radius, inclination, limb darkening).
+* **[LMFIT](https://lmfit.github.io/lmfit-py/):** A non-linear least-squares optimization library used to "fit" the `batman` theoretical models to the actual noisy data to extract physical parameters (like the $R_p/R_s$ ratio).
+* **[Matplotlib](https://matplotlib.org/):** Used at the very end of the pipeline to generate and save a highly detailed, static PNG visualization report of the entire analysis.
+
+---
+
 ## 🚀 Step-by-Step Guide: How to Run AstroDetect
 
 AstroDetect is split into two parts: a **Python FastApi Backend** (which handles all the heavy astronomy calculations) and a **Next.js React Frontend** (which provides the interactive UI). You will need to run both simultaneously in two separate terminal windows.
