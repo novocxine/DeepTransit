@@ -53,7 +53,7 @@ async def run_pipeline(tic_id: str, sector: Optional[int], job_id: str) -> dict:
     """
     from utils.ingest import download_lightcurve
     from utils.preprocess import detrend_and_normalize, phase_fold
-    from utils.detect import run_bls
+    from utils.detect import run_bls, check_period_aliasing
     from utils.classify import classify_signal
     from utils.fit import fit_transit_model
     from utils.visualize import plot_full_report
@@ -93,6 +93,17 @@ async def run_pipeline(tic_id: str, sector: Optional[int], job_id: str) -> dict:
         bls_result = await asyncio.get_event_loop().run_in_executor(
             None, lambda: run_bls(time_flat, flux_flat, flux_err_flat)
         )
+        
+        # Check for period aliasing
+        aliasing_check = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: check_period_aliasing(time_flat, flux_flat, flux_err_flat, bls_result)
+        )
+        if aliasing_check["aliasing_detected"]:
+            bls_result["period_aliasing_flag"] = True
+            bls_result["true_period_estimate"] = aliasing_check["half_period"]
+        else:
+            bls_result["period_aliasing_flag"] = False
+
         stage_times["BLS"] = round(time_mod.time() - t0, 2)
         _set_stage(job_id, "BLS", 60)
         JOBS[job_id]["elapsed"] = dict(stage_times)

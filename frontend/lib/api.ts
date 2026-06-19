@@ -157,7 +157,53 @@ export function getReportUrl(ticId: string, sector: number = 1) {
   return `${API_BASE}/api/plot/${ticId}?sector=${sector}`;
 }
 
-// ── SSE progress listener ──────────────────────────────────────────────────────
+// ── Vetting ────────────────────────────────────────────────────────────────────
+
+export type VettingSeverity = "pass" | "caution" | "fail";
+
+export interface VettingTest {
+  name: string;
+  value: number | null;
+  threshold: number | null;
+  severity: VettingSeverity;
+  passed: boolean;
+  explanation: string;
+}
+
+export interface VettingOverall {
+  verdict: "PASSES_ALL_CHECKS" | "PASSES_WITH_CAUTION" | "REQUIRES_MANUAL_REVIEW" | "LIKELY_FALSE_POSITIVE";
+  n_tests: number;
+  n_pass: number;
+  n_caution: number;
+  n_fail: number;
+  note: string;
+}
+
+export interface VettingReport {
+  odd_even_test: VettingTest;
+  secondary_eclipse_test: VettingTest;
+  shape_test: VettingTest;
+  depth_consistency_test: VettingTest;
+  duration_consistency_test: VettingTest;
+  snr_test: VettingTest;
+  overall: VettingOverall;
+  classifier_context?: {
+    classification: string;
+    confidence: number;
+    note: string;
+  };
+}
+
+export async function getVettingReport(ticId: string): Promise<VettingReport> {
+  const res = await fetch(`${API_BASE}/api/vetting/${ticId}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Vetting report unavailable");
+  }
+  return res.json();
+}
+
+
 export function subscribeToJob(
   jobId: string,
   onUpdate: (status: JobStatus) => void,

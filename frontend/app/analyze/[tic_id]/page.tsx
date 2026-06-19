@@ -5,7 +5,7 @@ import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   RefreshCw, ChevronDown, BarChart2, GitBranch,
-  Activity, Layers, Award, Info, Download, Globe
+  Activity, Layers, Award, Info, Download, Globe, ShieldCheck
 } from "lucide-react";
 
 import PipelineTracker from "@/components/PipelineTracker";
@@ -19,6 +19,7 @@ import {
   type AnalysisResult, type JobStatus, CLASSIFICATION_META,
 } from "@/lib/api";
 import OrbitView from "@/components/orbit/OrbitView";
+import VettingReportTab from "@/components/VettingReportTab";
 
 // ── Tab definitions ────────────────────────────────────────────────────────────
 const TABS = [
@@ -28,6 +29,7 @@ const TABS = [
   { id: "bls",         label: "BLS Periodogram", icon: BarChart2 },
   { id: "classify",    label: "Classification", icon: Layers },
   { id: "orbit",       label: "Orbit View",    icon: Globe },
+  { id: "vetting",     label: "Vetting Report", icon: ShieldCheck },
 ];
 
 // ── Loading skeleton ───────────────────────────────────────────────────────────
@@ -634,6 +636,9 @@ export default function AnalyzePage() {
                           Orbital view available only for confirmed transit detections.
                         </div>
                       )
+                    )}
+                    {activeTab === "vetting" && (
+                      <VettingReportTab ticId={result.tic_id} />
                     )}
                   </motion.div>
                 </AnimatePresence>

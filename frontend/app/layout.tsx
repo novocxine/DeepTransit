@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
 import Providers from "./providers";
 
 export const metadata: Metadata = {
@@ -23,10 +24,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
       </head>
-      <body>
+      <body className="flex flex-col min-h-screen">
         <Providers>
           <Navbar />
-          <main className="relative z-10 pt-14">{children}</main>
+          <main className="relative z-10 pt-14 flex-1 flex flex-col">{children}</main>
+          <Footer />
         </Providers>
       </body>
     </html>

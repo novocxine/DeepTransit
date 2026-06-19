@@ -172,3 +172,68 @@ def _search_secondary(
 def _count_transits(time: np.ndarray, period: float, t0: float) -> int:
     t_span = time[-1] - time[0]
     return max(1, int(t_span / period))
+
+
+def check_period_aliasing(time, flux, flux_err, bls_result, snr_threshold=6.0):
+    """
+    Re-runs a focused BLS search at half the detected period to check whether
+    the 'true' period might be half of what was originally found — the classic
+    EB-masquerading-as-planet failure mode.
+
+    If a comparably strong signal exists at period/2 with a DIFFERENT depth on
+    alternating eclipses, the original detection is very likely a binary star
+    system, and the true period is half of what was reported.
+    """
+    import numpy as np
+    from astropy.timeseries import BoxLeastSquares
+    import astropy.units as u
+
+    full_period = bls_result["period"]
+    half_period = full_period / 2.0
+
+    # Narrow, focused search right around half_period only
+    search_window = np.linspace(half_period * 0.97, half_period * 1.03, 500) * u.day
+    durations = np.array([bls_result["duration"] * 0.7,
+                          bls_result["duration"],
+                          bls_result["duration"] * 1.3]) * u.day
+
+    bls = BoxLeastSquares(time * u.day, flux, dy=flux_err)
+    try:
+        pg = bls.power(search_window, durations, method="fast", objective="snr")
+    except Exception:
+        return {"aliasing_detected": False, "reason": "half-period search failed to run"}
+
+    best_idx = np.argmax(pg.power)
+    half_snr = float(pg.power[best_idx])
+    half_best_period = float(pg.period[best_idx].value)
+
+    if half_snr < snr_threshold:
+        return {"aliasing_detected": False, "half_period_snr": half_snr,
+                "reason": "no significant signal at half-period — original period likely correct"}
+
+    # A strong signal exists at half the period. Now check odd-even depth
+    # AT THIS half-period to see if alternating eclipses actually differ.
+    stats = bls.compute_stats(pg.period[best_idx], pg.duration[best_idx], pg.transit_time[best_idx])
+    odd_depth = float(stats.get("depth_odd", [0, 0])[0])
+    even_depth = float(stats.get("depth_even", [0, 0])[0])
+    odd_even_at_half = abs(odd_depth - even_depth) / (odd_depth + even_depth + 1e-10)
+
+    aliasing_detected = odd_even_at_half > 0.15  # meaningfully different alternating depths
+
+    return {
+        "aliasing_detected": bool(aliasing_detected),
+        "half_period": half_best_period,
+        "half_period_snr": half_snr,
+        "odd_even_at_half_period": float(odd_even_at_half),
+        "odd_depth_at_half": odd_depth,
+        "even_depth_at_half": even_depth,
+        "reason": (
+            f"Significant signal found at half the original period (P/2 = {half_best_period:.4f}d) "
+            f"with odd-even depth ratio {odd_even_at_half:.3f} — alternating eclipses differ "
+            f"substantially, indicating two distinct eclipse depths typical of an eclipsing binary. "
+            f"The reported period was likely a harmonic alias of the true {half_best_period:.4f}-day period."
+        ) if aliasing_detected else (
+            f"Signal exists at half-period but odd-even depths are consistent "
+            f"({odd_even_at_half:.3f}) — does not indicate aliasing."
+        ),
+    }

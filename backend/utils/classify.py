@@ -78,6 +78,26 @@ def classify_signal(
     """
     features = extract_features(bls_result, time, flux)
 
+    # HARD OVERRIDE: if period aliasing was detected, this is not a planet
+    # regardless of what the primary classifier scores show.
+    if bls_result.get("period_aliasing_flag", False):
+        label = "ECLIPSING_BINARY"
+        confidence = 0.85  # high but not artificially 99% — aliasing detection itself has some uncertainty
+        probs = {
+            "PLANET_TRANSIT": 0.05,
+            "ECLIPSING_BINARY": 0.85,
+            "BLEND": 0.07,
+            "OTHER": 0.03,
+            "NO_SIGNAL": 0.0,
+        }
+        logger.info(f"HARD OVERRIDE: Period aliasing detected -> ECLIPSING_BINARY")
+        return {
+            "classification": label,
+            "confidence": confidence,
+            "class_probabilities": probs,
+            "method": "rules (override)",
+        }
+
     # Try loading XGBoost model
     mp = model_path or MODEL_PATH
     model = _load_model(mp)
@@ -131,9 +151,24 @@ def _rule_based_classify(bls_result: dict, features: np.ndarray) -> dict:
 
     # ─── ECLIPSING BINARY ────────────────────────────────────────────────
     # Deep primary + odd/even asymmetry + secondary eclipse
-    eb_score = 0.0
-    if depth_ppm > 10000:
-        eb_score += 0.40
+    def _depth_score_eb(d_ppm: float) -> float:
+        """
+        Continuous EB suspicion score based on transit depth.
+        < 500 ppm   : ~0 (typical planet range)
+        500-2000 ppm: low-moderate suspicion
+        2000-10000 ppm: moderate-high suspicion
+        > 10000 ppm : near-certain EB
+        """
+        if d_ppm < 500:
+            return 0.0
+        elif d_ppm < 2000:
+            return 1.0 * (d_ppm - 500) / 1500
+        elif d_ppm < 10000:
+            return 1.0 + 2.0 * (d_ppm - 2000) / 8000
+        else:
+            return 3.5
+
+    eb_score = _depth_score_eb(depth_ppm)
     if odd_even_ratio > 0.20:
         eb_score += 0.30
     if sec_primary_ratio > 0.05:

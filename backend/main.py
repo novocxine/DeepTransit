@@ -260,7 +260,18 @@ async def get_plot(tic_id: str, sector: int = Query(1)):
     return FileResponse(report_path, media_type="image/png")
 
 # ── Orbit ─────────────────────────────────────────────────────────────────────
-from utils.orbit import get_current_orbital_phase, orbital_phase_to_xyz, generate_orbit_path, get_next_transit, get_stellar_distance_pc, compute_planet_earth_distance, compute_star_planet_separation
+from utils.orbit import (
+    get_current_orbital_phase,
+    orbital_phase_to_xyz,
+    generate_orbit_path,
+    get_next_transit,
+    get_stellar_distance_pc,
+    compute_planet_earth_distance,
+    compute_star_planet_separation,
+    get_star_coordinates_from_earth,
+    get_planet_coordinates_from_earth,
+    EARTH_COORDINATES,
+)
 from utils.habitability import (
     estimate_stellar_luminosity,
     estimate_equilibrium_temperature,
@@ -404,6 +415,33 @@ async def get_orbit(tic_id: str):
         "nearest_known_exoplanets": nearest_neighbors
     }
 
+    # Compute Earth-Relative 3D Cartesian Coordinates
+    earth_relative_coordinates = {"data_available": False}
+
+    if dist_data:
+        ra = dist_data.get("ra_deg")
+        dec = dist_data.get("dec_deg")
+        dist_pc = dist_data.get("distance_pc")
+
+        if ra is not None and dec is not None and dist_pc is not None:
+            star_coords = get_star_coordinates_from_earth(ra, dec, dist_pc)
+            planet_coords = get_planet_coordinates_from_earth(
+                star_coords, current_pos, distances["stellar_radius_rsun"]
+            )
+            earth_relative_coordinates = {
+                "data_available": True,
+                "earth": EARTH_COORDINATES,
+                "star": star_coords,
+                "planet": planet_coords,
+                "frame": "Earth-centered equatorial Cartesian (ICRS)",
+                "units": "parsecs (pc) and light-years (ly)",
+                "caveats": [
+                    "Present-epoch position from catalog data — not corrected for stellar proper motion or the Sun's motion through the galaxy.",
+                    "The local orbital frame's sky orientation cannot be determined from transit photometry. The vector addition is valid because the orbital offset is negligible at interstellar scales (see planet.orbital_offset_fraction_of_total_distance).",
+                    "'Galactic Frame' in the UI uses equatorial (ICRS) Cartesian axes, not galactic (l, b) coordinates — this is the simpler and more accurate choice for this purpose.",
+                ],
+            }
+
     return {
         "current_position": current_pos,
         "orbit_path": path,
@@ -416,6 +454,7 @@ async def get_orbit(tic_id: str):
         "distances": distances,
         "habitability": habitability,
         "comparison": comparison,
+        "earth_relative_coordinates": earth_relative_coordinates,
         "assumptions": [
             "Orbit assumed circular (e=0) per transit-fit convention",
             "Star treated as a sphere of radius 1 R★ unless TIC catalog provides measured radius",
@@ -425,7 +464,87 @@ async def get_orbit(tic_id: str):
     }
 
 
+# ── Vetting ───────────────────────────────────────────────────────────────────
+from utils.vetting import run_vetting_suite
+
+VETTING_CACHE: dict[str, dict] = {}
+
+@app.get("/api/vetting/{tic_id}", tags=["Data"])
+async def get_vetting(tic_id: str):
+    """
+    Run the formal vetting diagnostic battery for a detected signal.
+    Returns per-test results and an overall categorical verdict.
+
+    This endpoint answers 'how trustworthy is this detection?' —
+    a different question from the classifier confidence ('what type of signal is this?').
+    """
+    clean = _tic_clean(tic_id)
+
+    if clean in VETTING_CACHE:
+        return VETTING_CACHE[clean]
+
+    # Find matching completed job
+    target_result = None
+    for job in pl.JOBS.values():
+        if job.get("stage") == "DONE" and job.get("result", {}).get("tic_id") == clean:
+            target_result = job["result"]
+            break
+
+    if target_result is None:
+        from demo_data import get_demo_result
+        target_result = get_demo_result(clean)
+
+    if target_result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No completed analysis found for TIC {clean}. Run /api/analyze first.",
+        )
+
+    bls = target_result.get("bls")
+    fit = target_result.get("fit")
+
+    if bls is None:
+        raise HTTPException(
+            status_code=422,
+            detail="BLS result not available — vetting requires a completed BLS run.",
+        )
+
+    # Get raw light curve data if available (needed for shape test)
+    time_arr = None
+    flux_arr = None
+    flux_err_arr = None
+    lc = target_result.get("lightcurve")
+    if lc:
+        import numpy as np
+        time_arr = np.array(lc["time"])
+        flux_arr = np.array(lc["flux"])
+        flux_err_arr = np.array(lc.get("flux_err", np.ones_like(flux_arr) * 1e-4))
+
+    report = run_vetting_suite(
+        time=time_arr,
+        flux=flux_arr,
+        flux_err=flux_err_arr,
+        bls_result=bls,
+        fit_result=fit,
+    )
+
+    # Attach classifier context so frontend can show both side-by-side
+    report["classifier_context"] = {
+        "classification": target_result.get("classification"),
+        "confidence": target_result.get("confidence"),
+        "note": (
+            "Classifier confidence answers 'what type of signal is this?' — "
+            "the vetting verdict answers 'how trustworthy is this specific detection?' "
+            "They are complementary, not redundant."
+        ),
+    }
+
+    VETTING_CACHE[clean] = report
+    return report
+
+
 # ── Batch ─────────────────────────────────────────────────────────────────────
+
 @app.post("/api/batch", tags=["Batch"])
 async def batch_analyze(req: BatchRequest, background_tasks: BackgroundTasks):
     """Queue batch processing for multiple TIC IDs."""
