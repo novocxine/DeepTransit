@@ -5,7 +5,7 @@ import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   RefreshCw, ChevronDown, BarChart2, GitBranch,
-  Activity, Layers, Award, Info, Download
+  Activity, Layers, Award, Info, Download, Globe
 } from "lucide-react";
 
 import PipelineTracker from "@/components/PipelineTracker";
@@ -18,6 +18,7 @@ import {
   startAnalysis, pollJobStatus, getDemoStar, getReportUrl,
   type AnalysisResult, type JobStatus, CLASSIFICATION_META,
 } from "@/lib/api";
+import OrbitView from "@/components/orbit/OrbitView";
 
 // ── Tab definitions ────────────────────────────────────────────────────────────
 const TABS = [
@@ -26,6 +27,7 @@ const TABS = [
   { id: "phasefold",   label: "Phase Fold",   icon: GitBranch },
   { id: "bls",         label: "BLS Periodogram", icon: BarChart2 },
   { id: "classify",    label: "Classification", icon: Layers },
+  { id: "orbit",       label: "Orbit View",    icon: Globe },
 ];
 
 // ── Loading skeleton ───────────────────────────────────────────────────────────
@@ -624,6 +626,15 @@ export default function AnalyzePage() {
                     {activeTab === "phasefold" && <PhaseFoldTab result={result} />}
                     {activeTab === "bls" && <BLSTab result={result} />}
                     {activeTab === "classify" && <ClassifyTab result={result} />}
+                    {activeTab === "orbit" && (
+                      result.classification === "PLANET_TRANSIT" ? (
+                        <OrbitView ticId={result.tic_id} classificationDesc={result.description} />
+                      ) : (
+                        <div className="flex items-center justify-center h-64 text-space-muted mono text-sm text-center px-4">
+                          Orbital view available only for confirmed transit detections.
+                        </div>
+                      )
+                    )}
                   </motion.div>
                 </AnimatePresence>
               </motion.div>

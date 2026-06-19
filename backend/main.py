@@ -259,6 +259,58 @@ async def get_plot(tic_id: str, sector: int = Query(1)):
         )
     return FileResponse(report_path, media_type="image/png")
 
+# ── Orbit ─────────────────────────────────────────────────────────────────────
+from utils.orbit import get_current_orbital_phase, orbital_phase_to_xyz, generate_orbit_path, get_next_transit
+
+@app.get("/api/orbit/{tic_id}", tags=["Data"])
+async def get_orbit(tic_id: str):
+    """Return current orbital position and path for 2D/3D visualization."""
+    clean = _tic_clean(tic_id)
+    # Find matching job
+    target_job = None
+    for job in pl.JOBS.values():
+        if (
+            job.get("stage") == "DONE"
+            and job.get("result", {}).get("tic_id") == clean
+        ):
+            target_job = job
+            break
+    
+    if not target_job:
+        raise HTTPException(status_code=404, detail="No completed analysis found for this TIC ID.")
+        
+    result = target_job["result"]
+    if result.get("classification") != "PLANET_TRANSIT":
+        raise HTTPException(status_code=400, detail="Orbit view only available for confirmed transit detections.")
+        
+    fit = result.get("fit", {})
+    period = fit.get("period") or result.get("bls", {}).get("period", 1.0)
+    t0 = fit.get("t0") or result.get("bls", {}).get("t0", 0.0)
+    a_rs = fit.get("a_rs", 10.0)
+    rp_rs = fit.get("rp_rs", 0.1)
+    b = fit.get("b", 0.0)
+    
+    phase = get_current_orbital_phase(t0, period)
+    current_pos = orbital_phase_to_xyz(phase, a_rs, b)
+    path = generate_orbit_path(a_rs, b, 200)
+    next_t, next_h = get_next_transit(t0, period)
+    
+    return {
+        "current_position": current_pos,
+        "orbit_path": path,
+        "star_radius_rs": 1.0,
+        "planet_radius_rs": float(rp_rs),
+        "a_rs": float(a_rs),
+        "period_days": float(period),
+        "next_transit_btjd": next_t,
+        "next_transit_in_hours": next_h,
+        "assumptions": [
+            "Orbit assumed circular (e=0) per transit-fit convention",
+            "Star treated as a sphere of radius 1 R☆; planet radius shown to scale as Rp/R★",
+            "Position is illustrative — derived from transit timing, not direct imaging"
+        ]
+    }
+
 
 # ── Batch ─────────────────────────────────────────────────────────────────────
 @app.post("/api/batch", tags=["Batch"])

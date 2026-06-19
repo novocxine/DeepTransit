@@ -4,3 +4,33 @@
 __pycache__/
 *.py[cod]
 *$py.class
+venv/
+env/
+.venv/
+
+# Node.js / Next.js
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+
+# Backend Caches & Outputs
+backend/outputs/
+backend/lightcurves/
+backend/nohup.out
+
+# OS Files
+.DS_Store
+*.swp
+
+# IDEs
+.vscode/
+.idea/
+.gemini/
+
+# Environment Variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

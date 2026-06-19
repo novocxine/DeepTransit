@@ -56,7 +56,8 @@ def plot_full_report(
     try:
         import matplotlib
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        from matplotlib.figure import Figure
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
         import matplotlib.gridspec as gridspec
         from matplotlib.patches import FancyBboxPatch
     except ImportError as e:
@@ -78,7 +79,7 @@ def plot_full_report(
     depth = bls_result.get("depth", 0.001)
 
     # ── Figure setup ─────────────────────────────────────────────────────
-    plt.rcParams.update({
+    with matplotlib.rc_context({
         "figure.facecolor": COLORS["bg"],
         "axes.facecolor": COLORS["bg2"],
         "axes.edgecolor": COLORS["grid"],
@@ -90,16 +91,16 @@ def plot_full_report(
         "grid.alpha": 0.5,
         "font.family": "monospace",
         "font.size": 9,
-    })
+    }):
+        fig = Figure(figsize=(16, 10), facecolor=COLORS["bg"])
+        canvas = FigureCanvasAgg(fig)
+        gs = gridspec.GridSpec(2, 2, hspace=0.42, wspace=0.32,
+                               top=0.88, bottom=0.08, left=0.07, right=0.97)
 
-    fig = plt.figure(figsize=(16, 10), facecolor=COLORS["bg"])
-    gs = gridspec.GridSpec(2, 2, hspace=0.42, wspace=0.32,
-                           top=0.88, bottom=0.08, left=0.07, right=0.97)
-
-    ax_raw  = fig.add_subplot(gs[0, 0])
-    ax_flat = fig.add_subplot(gs[0, 1])
-    ax_fold = fig.add_subplot(gs[1, 0])
-    ax_bls  = fig.add_subplot(gs[1, 1])
+        ax_raw  = fig.add_subplot(gs[0, 0])
+        ax_flat = fig.add_subplot(gs[0, 1])
+        ax_fold = fig.add_subplot(gs[1, 0])
+        ax_bls  = fig.add_subplot(gs[1, 1])
 
     # ── Header ────────────────────────────────────────────────────────────
     fig.text(0.5, 0.95, f"AstroDetect  ·  TIC {tic_id}  ·  Sector {sector}",
@@ -207,9 +208,8 @@ def plot_full_report(
              f"BAH 2026 — AstroDetect",
              fontsize=7, color=COLORS["muted"], fontfamily="monospace")
 
-    plt.savefig(out_path, dpi=150, bbox_inches="tight",
+    fig.savefig(out_path, dpi=150, bbox_inches="tight",
                 facecolor=COLORS["bg"], edgecolor="none")
-    plt.close(fig)
 
     logger.info(f"Report saved → {out_path}")
     return out_path
