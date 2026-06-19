@@ -59,7 +59,7 @@ export default function Navbar() {
             );
           })}
           <a
-            href="https://github.com"
+            href="https://github.com/novocxine/DeepTransit"
             target="_blank"
             rel="noopener noreferrer"
             className="ml-2 p-1.5 text-space-muted hover:text-space-text transition-colors"
