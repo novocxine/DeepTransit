@@ -260,7 +260,18 @@ async def get_plot(tic_id: str, sector: int = Query(1)):
     return FileResponse(report_path, media_type="image/png")
 
 # ── Orbit ─────────────────────────────────────────────────────────────────────
-from utils.orbit import get_current_orbital_phase, orbital_phase_to_xyz, generate_orbit_path, get_next_transit
+from utils.orbit import get_current_orbital_phase, orbital_phase_to_xyz, generate_orbit_path, get_next_transit, get_stellar_distance_pc, compute_planet_earth_distance, compute_star_planet_separation
+from utils.habitability import (
+    estimate_stellar_luminosity,
+    estimate_equilibrium_temperature,
+    compute_habitable_zone,
+    classify_hz_position,
+    compare_to_solar_system,
+    classify_planet_type,
+    find_nearest_known_exoplanets,
+)
+
+DISTANCE_CACHE = {}
 
 @app.get("/api/orbit/{tic_id}", tags=["Data"])
 async def get_orbit(tic_id: str):
@@ -294,7 +305,105 @@ async def get_orbit(tic_id: str):
     current_pos = orbital_phase_to_xyz(phase, a_rs, b)
     path = generate_orbit_path(a_rs, b, 200)
     next_t, next_h = get_next_transit(t0, period)
+
+    # Resolve distances
+    if clean not in DISTANCE_CACHE:
+        # Run in executor to avoid blocking the async event loop during astroquery network call
+        dist_data = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: get_stellar_distance_pc(clean)
+        )
+        DISTANCE_CACHE[clean] = dist_data
+    else:
+        dist_data = DISTANCE_CACHE[clean]
+
+    distances = {
+        "data_available": False,
+        "stellar_radius_rsun": 1.0,
+        "stellar_radius_source": "Assumed 1.0 R☉",
+    }
     
+    if dist_data:
+        rad = dist_data.get("stellar_radius_rsun") or 1.0
+        source = dist_data.get("source")
+        
+        star_planet = compute_star_planet_separation(a_rs, rad)
+        earth_planet = compute_planet_earth_distance(dist_data["distance_pc"], a_rs, rad)
+        
+        distances.update({
+            "data_available": True,
+            "stellar_radius_rsun": rad,
+            "stellar_radius_source": source if dist_data.get("stellar_radius_rsun") else "Assumed 1.0 R☉ (TIC missing)",
+            "star_planet_separation": {
+                "separation_au": star_planet["separation_au"],
+                "separation_km": star_planet["separation_km"],
+                "assumption_flag": star_planet["assumption_flag"]
+            },
+            "earth_distances": {
+                "earth_to_star_ly": dist_data["distance_ly"],
+                "earth_to_star_pc": dist_data["distance_pc"],
+                "earth_to_star_err_ly": dist_data["distance_ly_err"],
+                "earth_to_planet_ly": dist_data["distance_ly"],
+                "source": dist_data["source"]
+            }
+        })
+    else:
+        # Fallback if no data available, compute separation using default 1.0 R_sun
+        star_planet = compute_star_planet_separation(a_rs, 1.0)
+        distances["star_planet_separation"] = {
+            "separation_au": star_planet["separation_au"],
+            "separation_km": star_planet["separation_km"],
+            "assumption_flag": True
+        }
+    
+    # Compute Habitability and Comparisons
+    teff_k = 5778
+    teff_assumed = True
+    
+    if dist_data and dist_data.get("stellar_teff_k"):
+        teff_k = dist_data["stellar_teff_k"]
+        teff_assumed = False
+        
+    rad_rsun = distances["stellar_radius_rsun"]
+    sep_au = distances["star_planet_separation"]["separation_au"]
+    
+    lum_lsun = estimate_stellar_luminosity(teff_k, rad_rsun)
+    eq_temp = estimate_equilibrium_temperature(teff_k, rad_rsun, sep_au)
+    hz = compute_habitable_zone(teff_k, lum_lsun)
+    hz_pos = classify_hz_position(sep_au, hz)
+    
+    habitability = {
+        "stellar_teff_k": teff_k,
+        "teff_assumed": teff_assumed,
+        "stellar_luminosity_lsun": lum_lsun,
+        "equilibrium_temp_k": eq_temp["equilibrium_temp_k"],
+        "equilibrium_temp_c": eq_temp["equilibrium_temp_c"],
+        "albedo_assumed": eq_temp["albedo_assumed"],
+        "habitable_zone": {
+            "inner_edge_au": hz["inner_edge_au"],
+            "outer_edge_au": hz["outer_edge_au"],
+        },
+        "hz_position": hz_pos,
+        "separation_au": sep_au,
+    }
+    
+    comp_ss = compare_to_solar_system(period, sep_au, rp_rs, rad_rsun)
+    classification = classify_planet_type(comp_ss["planet_radius_rearth"], period, eq_temp["equilibrium_temp_k"])
+    nearest_neighbors = find_nearest_known_exoplanets(comp_ss["planet_radius_rearth"], period)
+    
+    comparison = {
+        "planet_radius_rearth": comp_ss["planet_radius_rearth"],
+        "orbital_distance_au": comp_ss["orbital_distance_au"],
+        "orbital_distance_vs_earth_pct": comp_ss["orbital_distance_vs_earth_pct"],
+        "period_vs_earth_pct": comp_ss["period_vs_earth_pct"],
+        "closest_solar_system_analog": comp_ss["closest_solar_system_analog_by_distance"],
+        "classification": {
+            "size_class": classification["size_class"],
+            "temperature_class": classification["temperature_class"],
+            "informal_label": classification["informal_label"],
+        },
+        "nearest_known_exoplanets": nearest_neighbors
+    }
+
     return {
         "current_position": current_pos,
         "orbit_path": path,
@@ -304,10 +413,14 @@ async def get_orbit(tic_id: str):
         "period_days": float(period),
         "next_transit_btjd": next_t,
         "next_transit_in_hours": next_h,
+        "distances": distances,
+        "habitability": habitability,
+        "comparison": comparison,
         "assumptions": [
             "Orbit assumed circular (e=0) per transit-fit convention",
-            "Star treated as a sphere of radius 1 R☆; planet radius shown to scale as Rp/R★",
-            "Position is illustrative — derived from transit timing, not direct imaging"
+            "Star treated as a sphere of radius 1 R★ unless TIC catalog provides measured radius",
+            "Earth distance sourced from Gaia-derived TIC catalog parallax, not from transit fit",
+            "Planet-to-Earth distance treated as equal to star-to-Earth distance (orbital separation is negligible at parsec scale)"
         ]
     }
 

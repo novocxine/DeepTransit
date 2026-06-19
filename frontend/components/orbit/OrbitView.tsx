@@ -5,6 +5,10 @@ import Orbit2D from "./Orbit2D";
 import Orbit3D from "./Orbit3D";
 import OrbitStatsStrip from "./OrbitStatsStrip";
 
+import DistanceInfoPanel from "./DistanceInfoPanel";
+import HabitabilitySection from "./HabitabilitySection";
+import ComparativeContext from "./ComparativeContext";
+
 interface OrbitViewProps {
   ticId: string;
   classificationDesc?: string;
@@ -60,6 +64,7 @@ export default function OrbitView({ ticId, classificationDesc }: OrbitViewProps)
     planet_radius_rs,
     period_days,
     next_transit_in_hours,
+    distances,
   } = data;
 
   return (
@@ -97,6 +102,7 @@ export default function OrbitView({ ticId, classificationDesc }: OrbitViewProps)
             periodDays={period_days}
             isTransiting={current_position.is_transiting}
             isOcculted={current_position.is_occulted}
+            distances={distances}
           />
         ) : (
           <Orbit3D
@@ -104,6 +110,7 @@ export default function OrbitView({ ticId, classificationDesc }: OrbitViewProps)
             aRs={a_rs}
             planetRadiusRs={planet_radius_rs}
             orbitPath={orbit_path}
+            distances={distances}
           />
         )}
       </div>
@@ -113,7 +120,14 @@ export default function OrbitView({ ticId, classificationDesc }: OrbitViewProps)
         aRs={a_rs}
         phase={current_position.phase}
         nextTransitInHours={next_transit_in_hours}
+        distances={distances}
       />
+
+      <DistanceInfoPanel distances={distances} />
+
+      <HabitabilitySection habitability={data.habitability} />
+
+      <ComparativeContext comparison={data.comparison} starRadiusRs={data.star_radius_rs} />
 
       <div className="mt-6 p-5 rounded-lg bg-space-card/20 border border-space-card text-sm text-space-muted leading-relaxed space-y-5">
         {classificationDesc && (

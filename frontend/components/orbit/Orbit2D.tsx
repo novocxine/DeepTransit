@@ -10,6 +10,7 @@ interface Orbit2DProps {
   periodDays: number;
   isTransiting: boolean;
   isOcculted: boolean;
+  distances?: any;
 }
 
 export default function Orbit2D({
@@ -19,6 +20,7 @@ export default function Orbit2D({
   periodDays,
   isTransiting,
   isOcculted,
+  distances,
 }: Orbit2DProps) {
   // SVG coordinate space: center is (0,0), radius is relative to aRs.
   // We'll scale everything so the orbit radius (aRs) fits in a viewBox of [-150, -150, 300, 300].
@@ -127,6 +129,15 @@ export default function Orbit2D({
           <text x="12" y="4" fill="#58a6ff" fontSize="10" fontFamily="monospace" className="select-none">NOW</text>
         </g>
       </svg>
+
+      {/* Earth Distance Inset */}
+      {distances?.data_available && (
+        <div className="absolute bottom-4 left-4 text-xs font-mono text-[#58a6ff] bg-space-black/50 px-3 py-1.5 rounded border border-[#58a6ff]/20 flex items-center gap-2">
+          <span>🌍 Earth</span>
+          <span className="text-space-muted">—</span>
+          <span>{distances.earth_distances.earth_to_star_ly.toFixed(0)} ly →</span>
+        </div>
+      )}
 
       {/* Animation Speed Label */}
       <div className="absolute bottom-4 right-4 text-xs text-space-muted mono bg-space-black/50 px-2 py-1 rounded">

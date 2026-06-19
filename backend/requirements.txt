@@ -15,3 +15,4 @@ tqdm
 python-multipart
 sse-starlette
 aiofiles
+astroquery
