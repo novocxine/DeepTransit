@@ -1,1 +1,14 @@
-{"targets": [{"tic_id": "171638200", "expected_class": "ECLIPSING_BINARY", "reason": "period aliasing false positive"}]}
+{
+  "targets": [
+    {
+      "tic_id": "171638200",
+      "expected_class": "ECLIPSING_BINARY",
+      "reason": "period aliasing false positive"
+    },
+    {
+      "tic_id": "414764074",
+      "expected_class": "ECLIPSING_BINARY",
+      "reason": "duration plausibility and ellipsoidal variation false positive"
+    }
+  ]
+}

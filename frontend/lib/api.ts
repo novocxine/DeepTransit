@@ -186,6 +186,9 @@ export interface VettingReport {
   depth_consistency_test: VettingTest;
   duration_consistency_test: VettingTest;
   snr_test: VettingTest;
+  period_aliasing_test?: VettingTest;
+  duration_plausibility_test?: VettingTest;
+  ellipsoidal_variation_test?: VettingTest;
   overall: VettingOverall;
   classifier_context?: {
     classification: string;

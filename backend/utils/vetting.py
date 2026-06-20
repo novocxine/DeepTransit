@@ -66,6 +66,20 @@ def run_vetting_suite(time, flux, flux_err, bls_result: dict, fit_result: dict =
         logger.warning(f"period_aliasing_test failed: {e}")
         report["period_aliasing_test"] = _error_test("Period Aliasing Check (P vs P/2)", str(e))
 
+    try:
+        report["duration_plausibility_test"] = _duration_plausibility_test(bls_result)
+    except Exception as e:
+        logger.warning(f"duration_plausibility_test failed: {e}")
+        report["duration_plausibility_test"] = _error_test("Transit Duration Plausibility", str(e))
+
+    try:
+        # Pass time and flux from the parent scope or pass them as args if they were available
+        # Wait, run_vetting_suite has time and flux!
+        report["ellipsoidal_variation_test"] = _ellipsoidal_variation_test(time, flux, bls_result)
+    except Exception as e:
+        logger.warning(f"ellipsoidal_variation_test failed: {e}")
+        report["ellipsoidal_variation_test"] = _error_test("Ellipsoidal Variation Search", str(e))
+
     report["overall"] = _compute_overall_verdict(report)
     return report
 
@@ -277,6 +291,63 @@ def _period_aliasing_test(bls_result: dict) -> dict:
     }
 
 
+def _duration_plausibility_test(bls_result: dict) -> dict:
+    """
+    Checks whether the transit duration is physically plausible relative to
+    the orbital period. Long-duration 'transits' relative to the orbit are
+    inconsistent with planet geometry and indicate a likely eclipsing binary.
+    """
+    period = bls_result.get("period", 1.0)
+    duration = bls_result.get("duration", 0.1)
+    ratio = duration / max(period, 1e-10)
+
+    if ratio < 0.08:
+        severity = "pass"
+    elif ratio < 0.15:
+        severity = "caution"
+    else:
+        severity = "fail"
+
+    return {
+        "name": "Transit Duration Plausibility",
+        "value": float(ratio),
+        "threshold": 0.08,
+        "severity": severity,
+        "passed": severity == "pass",
+        "explanation": (
+            f"Duration/period ratio is {ratio:.3f}. Planet transits typically occupy "
+            f"1-8% of the orbital period; ratios above ~15% are not consistent with "
+            f"planet-transit geometry for realistic star-planet size combinations and "
+            f"strongly suggest an eclipsing binary, where the eclipsing bodies are "
+            f"comparable in size to their orbital separation."
+        ),
+    }
+
+def _ellipsoidal_variation_test(time, flux, bls_result: dict) -> dict:
+    """
+    Calls the ellipsoidal variation detector to see if out-of-eclipse
+    flux shows a double-peaked sinusoidal variation.
+    """
+    from utils.detect import detect_ellipsoidal_variation
+    period = bls_result.get("period", 1.0)
+    res = detect_ellipsoidal_variation(time, flux, period)
+    
+    if res.get("ellipsoidal_detected", False):
+        severity = "fail"
+        val = res.get("amplitude")
+    else:
+        severity = "pass"
+        val = None
+
+    return {
+        "name": "Ellipsoidal Variation Search",
+        "value": val,
+        "threshold": None,
+        "severity": severity,
+        "passed": severity == "pass",
+        "explanation": res.get("reason", "No ellipsoidal variation detected.")
+    }
+
 def _compute_overall_verdict(report: dict) -> dict:
     """
     Aggregates individual test severities into one categorical vetting verdict.
@@ -291,8 +362,10 @@ def _compute_overall_verdict(report: dict) -> dict:
     n_caution = severities.count("caution")
     n_pass = severities.count("pass")
 
-    # Treat period aliasing failure as a severe penalty that auto-triggers false positive
+    # Treat period aliasing and duration plausibility failures as severe penalties
     if report.get("period_aliasing_test", {}).get("severity") == "fail":
+        n_fail += 1
+    if report.get("duration_plausibility_test", {}).get("severity") == "fail":
         n_fail += 1
 
     if n_fail >= 2:

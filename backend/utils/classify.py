@@ -77,6 +77,29 @@ def classify_signal(
         classification, confidence, class_probabilities
     """
     features = extract_features(bls_result, time, flux)
+    duration_ratio = bls_result.get("duration", 0) / max(bls_result.get("period", 1), 1e-10)
+
+    # HARD PHYSICAL PLAUSIBILITY GATE
+    # A transit occupying more than ~20% of the orbital period is not
+    # consistent with planet-transit geometry for any realistic star+planet
+    # size combination. This is a near-deterministic disqualifier.
+    if duration_ratio > 0.20:
+        label = "ECLIPSING_BINARY"
+        confidence = min(0.70 + (duration_ratio - 0.20), 0.97)  # scales with how extreme the violation is
+        probs = {
+            "PLANET_TRANSIT": max(0.02, 1 - confidence - 0.08),
+            "ECLIPSING_BINARY": confidence,
+            "BLEND": 0.05,
+            "OTHER": 0.03,
+            "NO_SIGNAL": 0.0,
+        }
+        logger.info(f"HARD OVERRIDE: Duration ratio {duration_ratio:.3f} > 0.20 -> ECLIPSING_BINARY")
+        return {
+            "classification": label,
+            "confidence": confidence,
+            "class_probabilities": probs,
+            "method": "rules (override)",
+        }
 
     # HARD OVERRIDE: if period aliasing was detected, this is not a planet
     # regardless of what the primary classifier scores show.
@@ -173,8 +196,21 @@ def _rule_based_classify(bls_result: dict, features: np.ndarray) -> dict:
         eb_score += 0.30
     if sec_primary_ratio > 0.05:
         eb_score += 0.20
-    if duty_cycle > 0.15:
-        eb_score += 0.10
+    def _duration_ratio_score_eb(ratio: float) -> float:
+        """
+        Continuous EB suspicion score based on duration/period ratio.
+        Real planet transits: typically 0.01–0.08
+        Grazing/close EBs: routinely 0.15–0.45+
+        """
+        if ratio < 0.08:
+            return 0.0
+        elif ratio < 0.15:
+            return 1.5 * (ratio - 0.08) / 0.07
+        else:
+            excess = min(ratio - 0.15, 0.35)
+            return 1.5 + 4.0 * (excess / 0.35)
+
+    eb_score += _duration_ratio_score_eb(duty_cycle)
 
     if eb_score >= 0.50:
         eb_conf = min(0.97, 0.50 + eb_score * 0.5)

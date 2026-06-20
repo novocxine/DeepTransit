@@ -237,3 +237,49 @@ def check_period_aliasing(time, flux, flux_err, bls_result, snr_threshold=6.0):
             f"({odd_even_at_half:.3f}) — does not indicate aliasing."
         ),
     }
+
+
+def detect_ellipsoidal_variation(time, flux, period: float) -> dict:
+    """
+    Ellipsoidal variation produces a roughly sinusoidal flux pattern with TWO
+    peaks per orbital period (at quadrature, phase ±0.25), distinct from a
+    transit's single narrow dip. Checks for significant power at the
+    second harmonic of the orbital frequency outside of the eclipse itself.
+    """
+    import numpy as np
+    from scipy.optimize import curve_fit
+
+    phase = ((time % period) / period)
+
+    # Mask out the eclipse region itself (within 10% of phase 0) to isolate
+    # any out-of-eclipse variability
+    out_of_eclipse = (phase > 0.15) & (phase < 0.85)
+    if out_of_eclipse.sum() < 20:
+        return {"ellipsoidal_detected": False, "reason": "insufficient out-of-eclipse data"}
+
+    phase_oe = phase[out_of_eclipse]
+    flux_oe = flux[out_of_eclipse]
+
+    def double_sine(p, amp, phase_offset, baseline):
+        return baseline + amp * np.cos(4 * np.pi * (p - phase_offset))  # 2x per orbit
+
+    try:
+        popt, _ = curve_fit(double_sine, phase_oe, flux_oe, p0=[0.001, 0.0, 1.0])
+        amplitude = abs(popt[0])
+        out_of_eclipse_std = np.std(flux_oe)
+        # Significant if the fitted double-sine amplitude is large relative to noise
+        significant = amplitude > 2 * (out_of_eclipse_std / np.sqrt(out_of_eclipse.sum()))
+    except Exception:
+        return {"ellipsoidal_detected": False, "reason": "fit failed"}
+
+    return {
+        "ellipsoidal_detected": bool(significant),
+        "amplitude": float(amplitude),
+        "reason": (
+            "Significant double-peaked (2x per orbit) brightness variation detected "
+            "outside the eclipse window — consistent with tidal/ellipsoidal "
+            "distortion in a close binary system, not a single planet transit."
+            if significant else
+            "No significant out-of-eclipse periodic variation detected."
+        ),
+    }
