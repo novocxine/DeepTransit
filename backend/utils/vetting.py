@@ -73,12 +73,16 @@ def run_vetting_suite(time, flux, flux_err, bls_result: dict, fit_result: dict =
         report["duration_plausibility_test"] = _error_test("Transit Duration Plausibility", str(e))
 
     try:
-        # Pass time and flux from the parent scope or pass them as args if they were available
-        # Wait, run_vetting_suite has time and flux!
         report["ellipsoidal_variation_test"] = _ellipsoidal_variation_test(time, flux, bls_result)
     except Exception as e:
         logger.warning(f"ellipsoidal_variation_test failed: {e}")
         report["ellipsoidal_variation_test"] = _error_test("Ellipsoidal Variation Search", str(e))
+
+    try:
+        report["planet_radius_plausibility_test"] = _planet_radius_plausibility_test(fit_result)
+    except Exception as e:
+        logger.warning(f"planet_radius_plausibility_test failed: {e}")
+        report["planet_radius_plausibility_test"] = _error_test("Planet Radius Plausibility", str(e))
 
     report["overall"] = _compute_overall_verdict(report)
     return report
@@ -346,6 +350,49 @@ def _ellipsoidal_variation_test(time, flux, bls_result: dict) -> dict:
         "severity": severity,
         "passed": severity == "pass",
         "explanation": res.get("reason", "No ellipsoidal variation detected.")
+    }
+
+def _planet_radius_plausibility_test(fit_result: dict, stellar_radius_rsun: float = 1.0) -> dict:
+    """
+    Checks whether the fitted planet-to-star radius ratio implies a physically
+    reasonable planet radius, distinct from raw transit depth which is
+    degenerate with stellar radius and can't be judged in isolation.
+    """
+    if fit_result is None or "rp_rs" not in fit_result:
+        return {
+            "name": "Planet Radius Plausibility",
+            "value": None,
+            "threshold": 2.5,
+            "severity": "caution",
+            "passed": False,
+            "explanation": "No fitted Rp/Rs available to estimate planet radius."
+        }
+
+    rp_rs = float(fit_result["rp_rs"])
+    JUPITER_RADIUS_RSUN = 0.10049
+    implied_radius_rjup = (rp_rs * stellar_radius_rsun) / JUPITER_RADIUS_RSUN
+
+    if implied_radius_rjup < 2.5:
+        severity = "pass"
+    elif implied_radius_rjup < 4.0:
+        severity = "caution"
+    else:
+        severity = "fail"
+
+    return {
+        "name": "Planet Radius Plausibility",
+        "value": float(implied_radius_rjup),
+        "threshold": 2.5,
+        "severity": severity,
+        "passed": severity == "pass",
+        "explanation": (
+            f"Implied planet radius is {implied_radius_rjup:.2f}x Jupiter's radius "
+            f"(derived from the fitted Rp/Rs, not raw transit depth, since depth alone "
+            f"is degenerate with stellar radius). Known confirmed planets extend up to "
+            f"roughly 2x Jupiter's radius; larger implied radii increasingly suggest "
+            f"the eclipsing body may be stellar (a brown dwarf or low-mass star) rather "
+            f"than a planet."
+        ),
     }
 
 def _compute_overall_verdict(report: dict) -> dict:

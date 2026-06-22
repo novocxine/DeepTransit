@@ -210,9 +210,11 @@ def plot_full_report(
 
     fig.savefig(out_path, dpi=150, bbox_inches="tight",
                 facecolor=COLORS["bg"], edgecolor="none")
+    import matplotlib.pyplot as plt
+    plt.close(fig)
 
     logger.info(f"Report saved → {out_path}")
-    return out_path
+    return out_path, label
 
 
 def _style_ax(ax, title: str, xlabel: str, ylabel: str) -> None:

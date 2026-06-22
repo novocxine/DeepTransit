@@ -1,14 +1,39 @@
 {
-  "targets": [
+  "known_false_negatives_as_eb": [
+    {
+      "tic_id": "259377017",
+      "true_classification": "PLANET_TRANSIT",
+      "previously_misclassified_as": "ECLIPSING_BINARY",
+      "bug": "depth score over-weighted without radius cross-check",
+      "key_values": {"period": 11.3784, "depth_ppm": 2407, "rp_rs": 0.0491, "odd_even_ratio": 0.058}
+    }
+  ],
+  "known_false_positives_as_planet": [
     {
       "tic_id": "171638200",
-      "expected_class": "ECLIPSING_BINARY",
-      "reason": "period aliasing false positive"
+      "true_classification": "ECLIPSING_BINARY",
+      "previously_misclassified_as": "PLANET_TRANSIT",
+      "bug": "period aliasing — BLS locked onto 2x true period"
     },
     {
       "tic_id": "414764074",
-      "expected_class": "ECLIPSING_BINARY",
-      "reason": "duration plausibility and ellipsoidal variation false positive"
+      "true_classification": "ECLIPSING_BINARY",
+      "previously_misclassified_as": "PLANET_TRANSIT",
+      "bug": "duration ratio under-weighted (0.39 ratio scored same as 0.09)"
+    },
+    {
+      "tic_id": "302296544",
+      "true_classification": "NO_SIGNAL",
+      "previously_misclassified_as": "PLANET_TRANSIT",
+      "bug": "SNR floor failure (SNR 5.8 was classified as clean detection)"
+    }
+  ],
+  "known_ui_sync_bugs": [
+    {
+      "tic_id": "278822952",
+      "true_classification": "PLANET_TRANSIT",
+      "previously_misclassified_as": "ECLIPSING_BINARY",
+      "bug": "UI/PNG desynchronization due to cached image in frontend"
     }
   ]
 }

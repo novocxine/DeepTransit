@@ -54,6 +54,9 @@ function StatusBadge({ status }: { status: string }) {
 export default function BatchPage() {
   const [inputText, setInputText] = useState(PLACEHOLDER_IDS);
   const [sector, setSector] = useState<string>("");
+  const [useCtl, setUseCtl] = useState(false);
+  const [useArchive, setUseArchive] = useState(false);
+  const [targetsPerSource, setTargetsPerSource] = useState<string>("50");
   const [job, setJob] = useState<BatchJob | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState("");
@@ -63,14 +66,33 @@ export default function BatchPage() {
   const ticIds = parseTicIds(inputText);
 
   const handleRun = async () => {
-    if (ticIds.length === 0) { setError("No valid TIC IDs found."); return; }
-    if (ticIds.length > 50) { setError("Maximum 50 TIC IDs per batch."); return; }
+    if (ticIds.length === 0 && !useCtl && !useArchive) { 
+      setError("No valid TIC IDs found and no external sources selected."); 
+      return; 
+    }
+    
+    // Build sources list
+    const sources: string[] = [];
+    if (useCtl) sources.push("ctl");
+    if (useArchive) sources.push("exoplanet_archive");
+
+    const totalEstimated = ticIds.length + (sources.length * (parseInt(targetsPerSource) || 0));
+    if (totalEstimated > 150) {
+      setError(`Estimated target count (${totalEstimated}) exceeds maximum allowed (150).`);
+      return;
+    }
+
     setError("");
     setIsRunning(true);
     setJob(null);
 
     try {
-      const res = await startBatch(ticIds, sector ? Number(sector) : undefined);
+      const res = await startBatch(
+        ticIds, 
+        sector ? Number(sector) : undefined,
+        sources,
+        parseInt(targetsPerSource) || 50
+      );
       // Poll for status
       const poll = async () => {
         const status: BatchJob = await getBatchStatus(res.batch_id);
@@ -143,23 +165,62 @@ export default function BatchPage() {
             <div className="glass-card p-5">
               <div className="flex items-center justify-between mb-3">
                 <label className="text-sm mono text-space-muted uppercase tracking-wider">
-                  TIC IDs
+                  Manual TIC IDs
                 </label>
                 <span className="text-xs mono text-space-accent">
-                  {ticIds.length} / 50
+                  {ticIds.length}
                 </span>
               </div>
               <textarea
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 placeholder="One TIC ID per line&#10;261136679&#10;219114641&#10;38846515"
-                rows={12}
+                rows={4}
                 className="space-input w-full px-3 py-2.5 rounded-lg text-sm resize-none"
                 style={{ fontFamily: "JetBrains Mono, monospace" }}
               />
-              <p className="text-xs text-space-muted mt-2">
-                Paste TIC IDs, one per line (or comma/space separated)
-              </p>
+            </div>
+
+            {/* Target Sources */}
+            <div className="glass-card p-5">
+              <label className="text-sm mono text-space-muted uppercase tracking-wider block mb-3">
+                Target Sources
+              </label>
+              
+              <div className="space-y-3 mb-4">
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <div className="relative flex items-center justify-center">
+                    <input type="checkbox" checked={useCtl} onChange={(e) => setUseCtl(e.target.checked)} className="peer sr-only" />
+                    <div className="w-5 h-5 rounded border border-space-border bg-space-bg peer-checked:bg-space-accent peer-checked:border-space-accent transition-all flex items-center justify-center">
+                      {useCtl && <CheckCircle2 size={14} className="text-white" />}
+                    </div>
+                  </div>
+                  <span className="text-sm text-space-text group-hover:text-space-accent transition-colors">Official CTL</span>
+                </label>
+                
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <div className="relative flex items-center justify-center">
+                    <input type="checkbox" checked={useArchive} onChange={(e) => setUseArchive(e.target.checked)} className="peer sr-only" />
+                    <div className="w-5 h-5 rounded border border-space-border bg-space-bg peer-checked:bg-space-accent peer-checked:border-space-accent transition-all flex items-center justify-center">
+                      {useArchive && <CheckCircle2 size={14} className="text-white" />}
+                    </div>
+                  </div>
+                  <span className="text-sm text-space-text group-hover:text-space-accent transition-colors">NASA Exoplanet Archive</span>
+                </label>
+              </div>
+
+              {(useCtl || useArchive) && (
+                <div className="pt-3 border-t border-space-border">
+                  <label className="text-xs text-space-muted block mb-1">Targets per source (max 50)</label>
+                  <input
+                    type="number"
+                    min={1} max={50}
+                    value={targetsPerSource}
+                    onChange={(e) => setTargetsPerSource(e.target.value)}
+                    className="space-input w-full px-3 py-1.5 rounded-lg text-sm"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="glass-card p-5">
@@ -189,14 +250,14 @@ export default function BatchPage() {
 
             <button
               onClick={handleRun}
-              disabled={isRunning || ticIds.length === 0}
+              disabled={isRunning || (ticIds.length === 0 && !useCtl && !useArchive)}
               className="btn-primary w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
               id="batch-run-btn"
             >
               {isRunning ? (
                 <><Loader2 size={15} className="animate-spin" /> Processing...</>
               ) : (
-                <><Play size={15} /> Run Batch ({ticIds.length} targets)</>
+                <><Play size={15} /> Run Batch</>
               )}
             </button>
 

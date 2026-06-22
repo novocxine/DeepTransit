@@ -67,6 +67,11 @@ export interface AnalysisResult {
   notes?: string;
   description?: string;
   method?: string;
+  target_provenance?: {
+    sources: string[];
+    display: string;
+    known_label: string | null;
+  };
 }
 
 export interface JobStatus {
@@ -134,11 +139,21 @@ export async function getLightCurve(ticId: string, sector?: number) {
   return res.json() as Promise<{ time: number[]; flux: number[]; flux_err: number[] }>;
 }
 
-export async function startBatch(ticIds: string[], sector?: number) {
+export async function startBatch(
+  ticIds: string[],
+  sector?: number,
+  sources?: string[],
+  targetsPerSource?: number
+) {
   const res = await fetch(`${API_BASE}/api/batch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tic_ids: ticIds, sector }),
+    body: JSON.stringify({
+      tic_ids: ticIds,
+      sector,
+      sources,
+      targets_per_source: targetsPerSource,
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -153,8 +168,9 @@ export async function getBatchStatus(batchId: string) {
   return res.json();
 }
 
-export function getReportUrl(ticId: string, sector: number = 1) {
-  return `${API_BASE}/api/plot/${ticId}?sector=${sector}`;
+export function getReportUrl(ticId: string, sector: number = 1, t?: string | number) {
+  const base = `${API_BASE}/api/plot/${ticId}?sector=${sector}`;
+  return t ? `${base}&t=${t}` : base;
 }
 
 // ── Vetting ────────────────────────────────────────────────────────────────────
@@ -189,6 +205,7 @@ export interface VettingReport {
   period_aliasing_test?: VettingTest;
   duration_plausibility_test?: VettingTest;
   ellipsoidal_variation_test?: VettingTest;
+  planet_radius_plausibility_test?: VettingTest;
   overall: VettingOverall;
   classifier_context?: {
     classification: string;

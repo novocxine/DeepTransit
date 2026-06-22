@@ -125,7 +125,7 @@ function OverviewTab({ result }: { result: AnalysisResult }) {
         </h3>
         <div className="relative bg-space-black rounded-lg overflow-hidden">
           <img
-            src={getReportUrl(tic_id, sector)}
+            src={getReportUrl(tic_id, sector, result.total_elapsed)}
             alt={`AstroDetect report for TIC ${tic_id}`}
             className="w-full rounded-lg"
             onError={(e) => {
@@ -133,7 +133,7 @@ function OverviewTab({ result }: { result: AnalysisResult }) {
             }}
           />
           <a
-            href={getReportUrl(tic_id, sector)}
+            href={getReportUrl(tic_id, sector, result.total_elapsed)}
             target="_blank"
             rel="noopener noreferrer"
             download
@@ -505,13 +505,28 @@ export default function AnalyzePage() {
           className="flex items-center justify-between mb-6"
         >
           <div>
-            <h1 className="text-2xl font-bold text-space-text">
-              <span className="text-space-muted font-normal">TIC </span>
-              <span className="mono text-space-accent">{ticId}</span>
+            <h1 className="text-2xl font-bold text-space-text flex items-center gap-3 flex-wrap">
+              <span>
+                <span className="text-space-muted font-normal">TIC </span>
+                <span className="mono text-space-accent">{ticId}</span>
+              </span>
+              {result?.target_provenance && (
+                <span className="text-xs px-2 py-1 rounded border border-space-border/50 bg-space-card/50 text-space-muted flex items-center gap-1 font-mono uppercase tracking-wider">
+                  {result.target_provenance.display}
+                </span>
+              )}
             </h1>
-            <p className="text-sm text-space-muted mt-1">
-              {isDemo ? "Demo mode — pre-computed results" : "Live TESS pipeline analysis"}
-            </p>
+            <div className="text-sm text-space-muted mt-2 flex flex-col items-start gap-2">
+              <span>{isDemo ? "Demo mode — pre-computed results" : "Live TESS pipeline analysis"}</span>
+              {result?.target_provenance?.known_label && (
+                <div className="flex flex-col gap-1 mt-1 bg-space-accent/10 border border-space-accent/20 px-3 py-2 rounded-lg max-w-fit">
+                  <span className="text-space-accent font-mono text-xs flex items-center gap-2">
+                    <ShieldCheck size={14} />
+                    NASA Exoplanet Archive · Known Disposition: <strong className="text-space-text">{result.target_provenance.known_label}</strong>
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
           <button
             onClick={runAnalysis}

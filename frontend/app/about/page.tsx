@@ -282,6 +282,7 @@ export default function AboutPage() {
             {[
               { label: "TESS MAST Archive", url: "https://archive.stsci.edu/tess/" },
               { label: "ExoFOP-TESS", url: "https://exofop.ipac.caltech.edu/tess/" },
+              { label: "NASA Exoplanet Archive", url: "https://exoplanetarchive.ipac.caltech.edu/" },
               { label: "lightkurve docs", url: "https://docs.lightkurve.org/" },
               { label: "batman docs", url: "https://lweb.cfa.harvard.edu/~lkreidberg/batman/" },
             ].map(({ label, url }) => (

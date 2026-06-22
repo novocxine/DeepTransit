@@ -211,11 +211,20 @@ def check_period_aliasing(time, flux, flux_err, bls_result, snr_threshold=6.0):
         return {"aliasing_detected": False, "half_period_snr": half_snr,
                 "reason": "no significant signal at half-period — original period likely correct"}
 
-    # A strong signal exists at half the period. Now check odd-even depth
     # AT THIS half-period to see if alternating eclipses actually differ.
     stats = bls.compute_stats(pg.period[best_idx], pg.duration[best_idx], pg.transit_time[best_idx])
     odd_depth = float(stats.get("depth_odd", [0, 0])[0])
     even_depth = float(stats.get("depth_even", [0, 0])[0])
+    
+    # If one of the depths is essentially zero, this isn't an EB with two unequal dips
+    # — it's just a genuine planet (single dip) folded at half its true period.
+    # An alias must have two actual, measurable dips.
+    min_depth = min(odd_depth, even_depth)
+    max_depth = max(odd_depth, even_depth)
+    
+    if max_depth <= 0 or min_depth / max_depth < 0.1:
+        return {"aliasing_detected": False, "reason": "One of the alternating depths at half-period is zero/negligible; not an alias."}
+        
     odd_even_at_half = abs(odd_depth - even_depth) / (odd_depth + even_depth + 1e-10)
 
     aliasing_detected = odd_even_at_half > 0.15  # meaningfully different alternating depths

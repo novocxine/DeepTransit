@@ -53,6 +53,8 @@ class AnalyzeRequest(BaseModel):
 class BatchRequest(BaseModel):
     tic_ids: list[str] = Field(..., description="List of TIC IDs to process")
     sector: Optional[int] = Field(None, description="Common sector for all targets")
+    sources: Optional[list[str]] = Field(None, description="Target sources to pull from")
+    targets_per_source: Optional[int] = Field(50, description="Max targets per source")
 
 
 # ── In-memory batch store ─────────────────────────────────────────────────────
@@ -549,12 +551,23 @@ async def get_vetting(tic_id: str):
 async def batch_analyze(req: BatchRequest, background_tasks: BackgroundTasks):
     """Queue batch processing for multiple TIC IDs."""
     import uuid
+    from utils.target_selection import get_combined_targets
 
-    if len(req.tic_ids) > 50:
-        raise HTTPException(status_code=400, detail="Batch size limited to 50 TIC IDs")
+    manual_clean_ids = [_tic_clean(t) for t in req.tic_ids]
+    sources = req.sources or []
+    
+    # Use the unified target selection to fetch and combine targets
+    target_records = get_combined_targets(
+        include_sources=sources,
+        n_per_source=req.targets_per_source or 50,
+        manual_tic_ids=manual_clean_ids
+    )
+    clean_ids = [r.tic_id for r in target_records]
+
+    if len(clean_ids) > 150:
+        raise HTTPException(status_code=400, detail="Batch size limited to 150 TIC IDs across all sources")
 
     batch_id = str(uuid.uuid4())
-    clean_ids = [_tic_clean(t) for t in req.tic_ids]
 
     BATCH_JOBS[batch_id] = {
         "batch_id": batch_id,

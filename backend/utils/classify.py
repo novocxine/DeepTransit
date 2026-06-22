@@ -174,28 +174,46 @@ def _rule_based_classify(bls_result: dict, features: np.ndarray) -> dict:
 
     # ─── ECLIPSING BINARY ────────────────────────────────────────────────
     # Deep primary + odd/even asymmetry + secondary eclipse
-    def _depth_score_eb(d_ppm: float) -> float:
-        """
-        Continuous EB suspicion score based on transit depth.
-        < 500 ppm   : ~0 (typical planet range)
-        500-2000 ppm: low-moderate suspicion
-        2000-10000 ppm: moderate-high suspicion
-        > 10000 ppm : near-certain EB
-        """
-        if d_ppm < 500:
-            return 0.0
-        elif d_ppm < 2000:
-            return 1.0 * (d_ppm - 500) / 1500
-        elif d_ppm < 10000:
-            return 1.0 + 2.0 * (d_ppm - 2000) / 8000
-        else:
-            return 3.5
+    rp_rs_approx = float(features[12]) if len(features) > 12 else np.sqrt(max(depth, 0))
 
-    eb_score = _depth_score_eb(depth_ppm)
+    def _depth_score_eb(d_ppm: float, rp_rs: float = None, stellar_radius_rsun: float = 1.0) -> float:
+        """
+        EB suspicion score based on transit depth, cross-checked against the
+        fitted Rp/Rs ratio (when available) to avoid penalizing genuinely large
+        but physically plausible planets (e.g., Hot/Warm Jupiters).
+        """
+        JUPITER_RADIUS_RSUN = 0.10049
+
+        if rp_rs is not None and rp_rs > 0:
+            implied_radius_rsun = rp_rs * stellar_radius_rsun
+            implied_radius_rjup = implied_radius_rsun / JUPITER_RADIUS_RSUN
+
+            if implied_radius_rjup < 2.5:
+                # Fully consistent with known planet population
+                return 0.0
+            elif implied_radius_rjup < 4.0:
+                # Larger than any confirmed planet, mild caution
+                return 1.0 * (implied_radius_rjup - 2.5) / 1.5
+            else:
+                # Approaching brown-dwarf/stellar radius territory
+                return min(1.0 + 2.5 * (implied_radius_rjup - 4.0) / 4.0, 3.5)
+
+        # Fallback (no fit available):
+        if d_ppm < 2000:
+            return 0.0
+        elif d_ppm < 10000:
+            return 0.5 * (d_ppm - 2000) / 8000
+        else:
+            return 1.5
+
+    eb_score = _depth_score_eb(depth_ppm, rp_rs_approx, 1.0)
+    logger.debug(f"eb_score after depth={eb_score}, rp_rs_approx={rp_rs_approx}, depth_ppm={depth_ppm}")
     if odd_even_ratio > 0.20:
         eb_score += 0.30
+        logger.debug(f"eb_score after odd_even={eb_score}")
     if sec_primary_ratio > 0.05:
         eb_score += 0.20
+        logger.debug(f"eb_score after sec_primary={eb_score}")
     def _duration_ratio_score_eb(ratio: float) -> float:
         """
         Continuous EB suspicion score based on duration/period ratio.
@@ -210,7 +228,9 @@ def _rule_based_classify(bls_result: dict, features: np.ndarray) -> dict:
             excess = min(ratio - 0.15, 0.35)
             return 1.5 + 4.0 * (excess / 0.35)
 
-    eb_score += _duration_ratio_score_eb(duty_cycle)
+    duration_score = _duration_ratio_score_eb(duty_cycle)
+    eb_score += duration_score
+    logger.debug(f"eb_score after duration={eb_score} (duration_score={duration_score})")
 
     if eb_score >= 0.50:
         eb_conf = min(0.97, 0.50 + eb_score * 0.5)

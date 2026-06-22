@@ -57,6 +57,7 @@ async def run_pipeline(tic_id: str, sector: Optional[int], job_id: str) -> dict:
     from utils.classify import classify_signal
     from utils.fit import fit_transit_model
     from utils.visualize import plot_full_report
+    from utils.target_selection import get_target_provenance
 
     JOBS[job_id]["started_at"] = time_mod.time()
     stage_times: dict[str, float] = {}
@@ -76,6 +77,9 @@ async def run_pipeline(tic_id: str, sector: Optional[int], job_id: str) -> dict:
         flux_raw = np.array(lc_data["flux"])
         flux_err_raw = np.array(lc_data["flux_err"])
         actual_sector = lc_data["sector"]
+        
+        # Fetch provenance
+        provenance = get_target_provenance(tic_id)
 
         # ── Stage 2: PREPROCESS ───────────────────────────────────────────
         _set_stage(job_id, "PREPROCESS", 25)
@@ -114,6 +118,32 @@ async def run_pipeline(tic_id: str, sector: Optional[int], job_id: str) -> dict:
         classification = await asyncio.get_event_loop().run_in_executor(
             None, lambda: classify_signal(bls_result, time_flat, flux_flat)
         )
+        
+        # Enforce SNR floor and dampen marginal confidence
+        snr = bls_result.get("snr", 0.0)
+        if snr < 6.0:
+            logger.info(f"HARD OVERRIDE: SNR {snr:.1f} < 6.0 floor -> NO_SIGNAL")
+            classification["classification"] = "NO_SIGNAL"
+            classification["confidence"] = 0.85
+            classification["method"] = "snr_floor_override"
+        elif 6.0 <= snr <= 10.0 and classification.get("confidence", 0) > 0.5:
+            # scale confidence linearly from 0.5 (at snr=6.0) to original confidence (at snr=10.0)
+            orig_conf = classification["confidence"]
+            weight = (snr - 6.0) / 4.0
+            new_conf = 0.5 + weight * (orig_conf - 0.5)
+            
+            # Adjust probabilities
+            for k in classification["class_probabilities"]:
+                if k == classification["classification"]:
+                    classification["class_probabilities"][k] = new_conf
+                else:
+                    # scale up the other probabilities slightly to make up for the reduced confidence
+                    diff = orig_conf - new_conf
+                    classification["class_probabilities"][k] += diff / 4.0
+                    
+            classification["confidence"] = round(new_conf, 4)
+            classification["class_probabilities"] = {k: round(v, 4) for k, v in classification["class_probabilities"].items()}
+
         stage_times["CLASSIFY"] = round(time_mod.time() - t0, 2)
         _set_stage(job_id, "CLASSIFY", 75)
         JOBS[job_id]["elapsed"] = dict(stage_times)
@@ -133,7 +163,7 @@ async def run_pipeline(tic_id: str, sector: Optional[int], job_id: str) -> dict:
         # ── Stage 6: VISUALIZE ────────────────────────────────────────────
         _set_stage(job_id, "VISUALIZE", 90)
         t0 = time_mod.time()
-        report_path = await asyncio.get_event_loop().run_in_executor(
+        report_path, report_label = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: plot_full_report(
                 tic_id=tic_id,
@@ -162,6 +192,7 @@ async def run_pipeline(tic_id: str, sector: Optional[int], job_id: str) -> dict:
             "bls": bls_result,
             "fit": fit_result,
             "report_path": report_path,
+            "report_label": report_label,
             "report_url": f"/api/plot/{tic_id}?sector={actual_sector}",
             "lightcurve": {
                 "time": time_flat.tolist(),
@@ -172,6 +203,11 @@ async def run_pipeline(tic_id: str, sector: Optional[int], job_id: str) -> dict:
             "total_elapsed": total_elapsed,
             "method": classification.get("method", "rules"),
             "description": _generate_description(classification, bls_result, fit_result),
+            "target_provenance": {
+                "sources": provenance.sources,
+                "display": provenance.provenance_display,
+                "known_label": provenance.known_label,
+            },
         }
 
         JOBS[job_id]["result"] = result
