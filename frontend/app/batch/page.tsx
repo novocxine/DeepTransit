@@ -95,12 +95,17 @@ export default function BatchPage() {
       );
       // Poll for status
       const poll = async () => {
-        const status: BatchJob = await getBatchStatus(res.batch_id);
-        setJob(status);
-        if (status.status === "DONE") {
+        try {
+          const status: BatchJob = await getBatchStatus(res.batch_id);
+          setJob(status);
+          if (status.status === "DONE") {
+            setIsRunning(false);
+          } else {
+            setTimeout(poll, 2000);
+          }
+        } catch (err) {
+          setError("Connection lost or batch not found. Please click Run Batch.");
           setIsRunning(false);
-        } else {
-          setTimeout(poll, 2000);
         }
       };
       setTimeout(poll, 1000);

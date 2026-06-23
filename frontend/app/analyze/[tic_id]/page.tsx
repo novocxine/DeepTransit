@@ -465,16 +465,21 @@ export default function AnalyzePage() {
 
         // Poll every 1.5s
         const poll = async () => {
-          const status = await pollJobStatus(job_id);
-          setJobStatus(status);
-          if (status.stage === "DONE" && status.result) {
-            setResult(status.result);
+          try {
+            const status = await pollJobStatus(job_id);
+            setJobStatus(status);
+            if (status.stage === "DONE" && status.result) {
+              setResult(status.result);
+              setIsRunning(false);
+            } else if (status.stage === "ERROR") {
+              setError(status.error || "Pipeline failed");
+              setIsRunning(false);
+            } else {
+              setTimeout(poll, 1500);
+            }
+          } catch (err) {
+            setError("Connection lost or job not found. Please click Re-run.");
             setIsRunning(false);
-          } else if (status.stage === "ERROR") {
-            setError(status.error || "Pipeline failed");
-            setIsRunning(false);
-          } else {
-            setTimeout(poll, 1500);
           }
         };
         setTimeout(poll, 1000);

@@ -104,16 +104,32 @@ def classify_signal(
     # HARD OVERRIDE: if period aliasing was detected, this is not a planet
     # regardless of what the primary classifier scores show.
     if bls_result.get("period_aliasing_flag", False):
-        label = "ECLIPSING_BINARY"
-        confidence = 0.85  # high but not artificially 99% — aliasing detection itself has some uncertainty
-        probs = {
-            "PLANET_TRANSIT": 0.05,
-            "ECLIPSING_BINARY": 0.85,
-            "BLEND": 0.07,
-            "OTHER": 0.03,
-            "NO_SIGNAL": 0.0,
-        }
-        logger.info(f"HARD OVERRIDE: Period aliasing detected -> ECLIPSING_BINARY")
+        # A period alias with a shallow depth (<3000 ppm) is almost certainly a 
+        # Background Eclipsing Binary (BEB), which we classify as a BLEND.
+        depth = bls_result.get("depth", 10000) * 1e6
+        if depth < 3000:
+            label = "BLEND"
+            confidence = 0.85
+            probs = {
+                "PLANET_TRANSIT": 0.05,
+                "ECLIPSING_BINARY": 0.07,
+                "BLEND": 0.85,
+                "OTHER": 0.03,
+                "NO_SIGNAL": 0.0,
+            }
+            logger.info(f"HARD OVERRIDE: Period aliasing + shallow depth detected -> BLEND (BEB)")
+        else:
+            label = "ECLIPSING_BINARY"
+            confidence = 0.85  # high but not artificially 99% — aliasing detection itself has some uncertainty
+            probs = {
+                "PLANET_TRANSIT": 0.05,
+                "ECLIPSING_BINARY": 0.85,
+                "BLEND": 0.07,
+                "OTHER": 0.03,
+                "NO_SIGNAL": 0.0,
+            }
+            logger.info(f"HARD OVERRIDE: Period aliasing detected -> ECLIPSING_BINARY")
+            
         return {
             "classification": label,
             "confidence": confidence,
@@ -208,18 +224,47 @@ def _rule_based_classify(bls_result: dict, features: np.ndarray) -> dict:
 
     eb_score = _depth_score_eb(depth_ppm, rp_rs_approx, 1.0)
     logger.debug(f"eb_score after depth={eb_score}, rp_rs_approx={rp_rs_approx}, depth_ppm={depth_ppm}")
-    if odd_even_ratio > 0.20:
-        eb_score += 0.30
-        logger.debug(f"eb_score after odd_even={eb_score}")
-    if sec_primary_ratio > 0.05:
-        eb_score += 0.20
-        logger.debug(f"eb_score after sec_primary={eb_score}")
+    # --- REFINEMENT FOR SHALLOW PLANET SAFEGUARDS (TOI-4029 b & TOI-6651 b) ---
+    is_shallow = depth_ppm < 2500
+    is_micro_size = rp_rs_approx < 0.08
+
+    if is_shallow or is_micro_size:
+        # Broaden the odd-even gate for shallow signals
+        if odd_even_ratio < 0.15:
+            eb_score -= 0.25
+            logger.debug(f"Shallow transit safeguard applied. Reduced eb_score to {eb_score}")
+        else:
+            eb_score += 0.20
+
+        # Relax the secondary eclipse ratio check
+        if sec_primary_ratio < 0.10:
+            eb_score -= 0.15
+            logger.debug(f"Sec/Primary noise discount applied. eb_score={eb_score}")
+    else:
+        # Standard Rules for Deep / Large Targets
+        if odd_even_ratio > 0.05:
+            eb_score += 0.25 if odd_even_ratio < 0.12 else 0.50
+            logger.debug(f"Standard EB penalty for odd_even={eb_score}")
+            
+        if sec_primary_ratio > 0.03:
+            eb_score += 0.20
+            logger.debug(f"Standard EB penalty for sec_primary={eb_score}")
+
+    # 2. NEW: The Ultimate Physical Veto (Radius Ratio)
+    # Your parameter fitting card pulled rp_rs = 0.1512. Use it!
+    if rp_rs_approx > 0.12:
+        eb_score += 0.40
+        logger.debug(f"eb_score after physical radius veto={eb_score}")
+    elif rp_rs_approx < 0.06 and depth_ppm < 3000:
+        # Safeguard for multi-planet systems like TOI-270 d
+        eb_score -= 0.30
+        logger.debug(f"Multi-planet safeguard applied. eb_score={eb_score}")
+
     def _duration_ratio_score_eb(ratio: float) -> float:
         """
         Continuous EB suspicion score based on duration/period ratio.
-        Real planet transits: typically 0.01–0.08
-        Grazing/close EBs: routinely 0.15–0.45+
         """
+        # Keep your original duration grading for short-period contact binaries
         if ratio < 0.08:
             return 0.0
         elif ratio < 0.15:
@@ -232,6 +277,12 @@ def _rule_based_classify(bls_result: dict, features: np.ndarray) -> dict:
     eb_score += duration_score
     logger.debug(f"eb_score after duration={eb_score} (duration_score={duration_score})")
 
+    # Fix B: Strict Depth vs Size Constraint
+    if depth_ppm < 3000 and rp_rs_approx < 0.06:
+        # If the object is smaller than Neptune/Saturn, noise shouldn't easily turn it into an EB
+        eb_score *= 0.20  # Apply an aggressive 80% suppression to the EB score
+        logger.debug(f"Applied deep noise suppression. Adjusted eb_score: {eb_score}")
+
     if eb_score >= 0.50:
         eb_conf = min(0.97, 0.50 + eb_score * 0.5)
         pt_conf = (1 - eb_conf) * 0.3
@@ -243,7 +294,9 @@ def _rule_based_classify(bls_result: dict, features: np.ndarray) -> dict:
         return _format_result("ECLIPSING_BINARY", probs, "rules")
 
     # ─── BLEND ──────────────────────────────────────────────────────────
-    # Very shallow depth AND low SNR AND some secondary
+    # Blends are often Background Eclipsing Binaries (BEBs).
+    # They exhibit EB-like characteristics (secondary eclipses, V-shapes)
+    # but their depth is significantly diluted by the primary star.
     blend_score = 0.0
     if depth_ppm < 1000 and snr < 12:
         blend_score += 0.35
@@ -251,7 +304,12 @@ def _rule_based_classify(bls_result: dict, features: np.ndarray) -> dict:
         blend_score += 0.20
     if depth_ppm < 500:
         blend_score += 0.20
-
+        
+    # NEW: Detect Background Eclipsing Binaries (BEBs)
+    # Moderate depth (1000 - 5000 ppm) with a secondary eclipse indicates a diluted binary.
+    if 1000 <= depth_ppm < 5000 and sec_primary_ratio > 0.02:
+        blend_score += 0.40
+        logger.debug(f"BEB Signature detected. blend_score={blend_score}")
     if blend_score >= 0.45:
         bl_conf = min(0.88, 0.45 + blend_score * 0.5)
         pt_conf = (1 - bl_conf) * 0.35

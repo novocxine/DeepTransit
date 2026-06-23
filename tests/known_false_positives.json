@@ -31,8 +31,8 @@
   "known_ui_sync_bugs": [
     {
       "tic_id": "278822952",
-      "true_classification": "PLANET_TRANSIT",
-      "previously_misclassified_as": "ECLIPSING_BINARY",
+      "true_classification": "ECLIPSING_BINARY",
+      "previously_misclassified_as": "PLANET_TRANSIT",
       "bug": "UI/PNG desynchronization due to cached image in frontend"
     }
   ]

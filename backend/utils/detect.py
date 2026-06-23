@@ -106,6 +106,83 @@ def run_bls(
     }
 
 
+def vicious_denoise_and_flatten(time, flux, period, epoch, transit_duration_hours):
+    import scipy.signal as signal
+    clean_flux = flux.copy()
+    
+    window_len = min(11, len(clean_flux))
+    if window_len % 2 == 0: window_len -= 1
+    if window_len > 3:
+        smoothed_flux = signal.savgol_filter(clean_flux, window_length=window_len, polyorder=2)
+    else:
+        smoothed_flux = clean_flux
+    
+    transit_duration_days = transit_duration_hours / 24.0
+    phase = (time - epoch + 0.5 * period) % period - 0.5 * period
+    in_transit_mask = np.abs(phase) < (transit_duration_days * 0.75)
+    
+    time_span = max(time[-1] - time[0], 1.0)
+    window_bins = int(len(time) * (transit_duration_days * 3.0 / time_span))
+    if window_bins % 2 == 0: window_bins += 1
+    
+    stellar_baseline = signal.medfilt(smoothed_flux, kernel_size=max(21, window_bins))
+    stellar_baseline[stellar_baseline == 0] = 1.0
+    
+    return clean_flux / stellar_baseline
+
+
+def _compute_odd_even_metrics(
+    time: np.ndarray,
+    flux: np.ndarray,
+    period: float,
+    t0: float,
+    duration: float,
+) -> tuple[float, float, float]:
+    """
+    Compare depths of odd vs even transits locally after vicious denoising.
+    Returns: (odd_even_ratio, odd_depth, even_depth)
+    """
+    flat_flux = vicious_denoise_and_flatten(time, flux, period, t0, duration * 24.0)
+
+    # Extend the mask slightly to ensure we capture at least a few points even for short transits
+    # with 30-minute cadence TESS data.
+    half_dur = max(duration / 2.0, 0.03)  # minimum 0.03 days (~45 minutes) half-duration
+    n = np.round((time - t0) / period).astype(int)
+    phase = time - (t0 + n * period)
+    in_transit_mask = np.abs(phase) <= half_dur
+
+    if in_transit_mask.sum() < 2:
+        return 0.0, 0.0, 0.0
+
+    odd_fluxes, even_fluxes = [], []
+    for transit_n in np.unique(n[in_transit_mask]):
+        mask = in_transit_mask & (n == transit_n)
+        # We need at least 1 point to compute a median depth!
+        if mask.sum() < 1:
+            continue
+        if transit_n % 2 == 0:
+            even_fluxes.extend(flat_flux[mask])
+        else:
+            odd_fluxes.extend(flat_flux[mask])
+
+    if not odd_fluxes or not even_fluxes:
+        return 0.0, 0.0, 0.0
+
+    # Focus purely on the minimum dip points (Fix A)
+    odd_transit_min = np.percentile(odd_fluxes, 5)
+    even_transit_min = np.percentile(even_fluxes, 5)
+    
+    odd_depth = 1.0 - odd_transit_min
+    even_depth = 1.0 - even_transit_min
+
+    denom = max(odd_depth, even_depth)
+    if denom <= 0:
+        return 0.0, 0.0, 0.0
+
+    ratio = abs(odd_depth - even_depth) / denom
+    return ratio, odd_depth, even_depth
+
+
 def _compute_odd_even_ratio(
     time: np.ndarray,
     flux: np.ndarray,
@@ -113,39 +190,9 @@ def _compute_odd_even_ratio(
     t0: float,
     duration: float,
 ) -> float:
-    """
-    Compare depths of odd vs even transits. High ratio → likely eclipsing binary.
-    Returns |depth_odd - depth_even| / (depth_odd + depth_even)
-    """
-    in_transit = np.zeros(len(time), dtype=int)
-    half_dur = duration / 2.0
-    n = np.round((time - t0) / period).astype(int)
-    phase = time - (t0 + n * period)
-    in_transit_mask = np.abs(phase) < half_dur
+    ratio, _, _ = _compute_odd_even_metrics(time, flux, period, t0, duration)
+    return ratio
 
-    if in_transit_mask.sum() < 4:
-        return 0.0
-
-    odd_depths, even_depths = [], []
-    for transit_n in np.unique(n[in_transit_mask]):
-        mask = in_transit_mask & (n == transit_n)
-        if mask.sum() < 2:
-            continue
-        depth_here = 1.0 - float(np.nanmedian(flux[mask]))
-        if transit_n % 2 == 0:
-            even_depths.append(depth_here)
-        else:
-            odd_depths.append(depth_here)
-
-    if not odd_depths or not even_depths:
-        return 0.0
-
-    d_odd = float(np.median(odd_depths))
-    d_even = float(np.median(even_depths))
-    total = abs(d_odd) + abs(d_even)
-    if total == 0:
-        return 0.0
-    return abs(d_odd - d_even) / total
 
 
 def _search_secondary(
@@ -212,9 +259,10 @@ def check_period_aliasing(time, flux, flux_err, bls_result, snr_threshold=6.0):
                 "reason": "no significant signal at half-period — original period likely correct"}
 
     # AT THIS half-period to see if alternating eclipses actually differ.
-    stats = bls.compute_stats(pg.period[best_idx], pg.duration[best_idx], pg.transit_time[best_idx])
-    odd_depth = float(stats.get("depth_odd", [0, 0])[0])
-    even_depth = float(stats.get("depth_even", [0, 0])[0])
+    # We use our robust, viciously-denoised odd-even metric calculation rather than Astropy's naive get
+    odd_even_at_half, odd_depth, even_depth = _compute_odd_even_metrics(
+        time, flux, half_best_period, pg.transit_time[best_idx].value, pg.duration[best_idx].value
+    )
     
     # If one of the depths is essentially zero, this isn't an EB with two unequal dips
     # — it's just a genuine planet (single dip) folded at half its true period.
@@ -223,11 +271,15 @@ def check_period_aliasing(time, flux, flux_err, bls_result, snr_threshold=6.0):
     max_depth = max(odd_depth, even_depth)
     
     if max_depth <= 0 or min_depth / max_depth < 0.1:
+        import logging
+        logging.getLogger(__name__).info(f"ALIAS REJECTED min/max: min={min_depth}, max={max_depth}")
         return {"aliasing_detected": False, "reason": "One of the alternating depths at half-period is zero/negligible; not an alias."}
-        
-    odd_even_at_half = abs(odd_depth - even_depth) / (odd_depth + even_depth + 1e-10)
+
 
     aliasing_detected = odd_even_at_half > 0.15  # meaningfully different alternating depths
+    
+    import logging
+    logging.getLogger(__name__).info(f"ALIAS CHECK: odd={odd_depth}, even={even_depth}, ratio={odd_even_at_half}, res={aliasing_detected}")
 
     return {
         "aliasing_detected": bool(aliasing_detected),

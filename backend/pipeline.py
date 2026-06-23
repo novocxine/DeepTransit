@@ -78,8 +78,10 @@ async def run_pipeline(tic_id: str, sector: Optional[int], job_id: str) -> dict:
         flux_err_raw = np.array(lc_data["flux_err"])
         actual_sector = lc_data["sector"]
         
-        # Fetch provenance
-        provenance = get_target_provenance(tic_id)
+        # Fetch provenance (in executor because it may hit NASA API)
+        provenance = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: get_target_provenance(tic_id)
+        )
 
         # ── Stage 2: PREPROCESS ───────────────────────────────────────────
         _set_stage(job_id, "PREPROCESS", 25)
