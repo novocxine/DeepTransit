@@ -283,15 +283,19 @@ def _rule_based_classify(bls_result: dict, features: np.ndarray) -> dict:
         eb_score *= 0.20  # Apply an aggressive 80% suppression to the EB score
         logger.debug(f"Applied deep noise suppression. Adjusted eb_score: {eb_score}")
 
-    if eb_score >= 0.50:
-        eb_conf = min(0.97, 0.50 + eb_score * 0.5)
-        pt_conf = (1 - eb_conf) * 0.3
-        bl_conf = (1 - eb_conf) * 0.4
-        ot_conf = (1 - eb_conf) * 0.2
-        ns_conf = (1 - eb_conf) * 0.1
-        probs = {"PLANET_TRANSIT": round(pt_conf, 4), "ECLIPSING_BINARY": round(eb_conf, 4),
-                 "BLEND": round(bl_conf, 4), "OTHER": round(ot_conf, 4), "NO_SIGNAL": round(ns_conf, 4)}
-        return _format_result("ECLIPSING_BINARY", probs, "rules")
+    # HARD GEOMETRIC VETO
+    # A stellar eclipsing binary cannot produce a transit where Rp/Rs < 0.06
+    # (that corresponds to ~0.6 Jupiter radii transiting a Sun-like star).
+    # If both depth AND radius ratio are microscopic, it is physically impossible
+    # for this to be a standard stellar binary — force the EB score floor.
+    if rp_rs_approx < 0.06 and depth_ppm < 3000:
+        if eb_score > 0.50:
+            logger.info(
+                f"HARD GEOMETRIC VETO: rp_rs={rp_rs_approx:.4f} < 0.06 "
+                f"and depth={depth_ppm:.0f} ppm < 3000 ppm → "
+                f"eb_score forced from {eb_score:.3f} to 0.15 (false-positive EB suppressed)"
+            )
+            eb_score = 0.15
 
     # ─── BLEND ──────────────────────────────────────────────────────────
     # Blends are often Background Eclipsing Binaries (BEBs).
@@ -310,7 +314,8 @@ def _rule_based_classify(bls_result: dict, features: np.ndarray) -> dict:
     if 1000 <= depth_ppm < 5000 and sec_primary_ratio > 0.02:
         blend_score += 0.40
         logger.debug(f"BEB Signature detected. blend_score={blend_score}")
-    if blend_score >= 0.45:
+
+    if blend_score >= 0.45 and (blend_score >= eb_score * 0.7 or depth_ppm < 5000):
         bl_conf = min(0.88, 0.45 + blend_score * 0.5)
         pt_conf = (1 - bl_conf) * 0.35
         eb_conf = (1 - bl_conf) * 0.25
@@ -319,6 +324,16 @@ def _rule_based_classify(bls_result: dict, features: np.ndarray) -> dict:
         probs = {"PLANET_TRANSIT": round(pt_conf, 4), "ECLIPSING_BINARY": round(eb_conf, 4),
                  "BLEND": round(bl_conf, 4), "OTHER": round(ot_conf, 4), "NO_SIGNAL": round(ns_conf, 4)}
         return _format_result("BLEND", probs, "rules")
+
+    if eb_score >= 0.50:
+        eb_conf = min(0.97, 0.50 + eb_score * 0.5)
+        pt_conf = (1 - eb_conf) * 0.3
+        bl_conf = (1 - eb_conf) * 0.4
+        ot_conf = (1 - eb_conf) * 0.2
+        ns_conf = (1 - eb_conf) * 0.1
+        probs = {"PLANET_TRANSIT": round(pt_conf, 4), "ECLIPSING_BINARY": round(eb_conf, 4),
+                 "BLEND": round(bl_conf, 4), "OTHER": round(ot_conf, 4), "NO_SIGNAL": round(ns_conf, 4)}
+        return _format_result("ECLIPSING_BINARY", probs, "rules")
 
     # ─── PLANET TRANSIT ─────────────────────────────────────────────────
     pt_score = 0.0

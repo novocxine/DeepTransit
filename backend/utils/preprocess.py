@@ -1,6 +1,8 @@
 """
 utils/preprocess.py
 Detrend and normalize TESS light curves using wotan biweight filter.
+Includes transit-aware second-pass detrending to suppress stellar rotation
+without blunting real transit walls.
 """
 import logging
 import numpy as np
@@ -106,6 +108,132 @@ def phase_fold(
     phase[phase > 0.5] -= 1.0
     sort_idx = np.argsort(phase)
     return phase[sort_idx], flux[sort_idx]
+
+
+def vicious_denoise_and_flatten(
+    time: np.ndarray,
+    flux: np.ndarray,
+    period: float,
+    epoch: float,
+    transit_duration_hours: float,
+) -> np.ndarray:
+    """
+    Transit-protected local flattening.
+
+    Strips large-scale rotational variability (stellar spots) from a light curve
+    *without* blunting the transit walls, by masking out the known transit windows
+    before computing the stellar baseline.
+
+    Algorithm:
+      1. Savitzky-Golay smooth the entire flux series.
+      2. Phase-fold and mask the in-transit region
+         (|phase| < transit_duration * 0.75).
+      3. Apply a broad median filter to the *smoothed* flux to absorb
+         slow stellar activity on the out-of-transit baseline.
+      4. Divide the raw flux by this baseline — transits are preserved intact.
+
+    Parameters
+    ----------
+    time : np.ndarray
+        Time array (days).
+    flux : np.ndarray
+        Relative flux array (centred near 1.0).
+    period : float
+        Orbital period (days) used for phase masking.
+    epoch : float
+        Transit epoch t0 (days).
+    transit_duration_hours : float
+        Transit duration in hours used for mask window.
+
+    Returns
+    -------
+    np.ndarray
+        Baseline-corrected flux (same length as input).
+    """
+    import scipy.signal as scipy_signal
+
+    clean_flux = flux.copy()
+
+    # Savitzky-Golay pre-smoothing — window must be odd and >= polyorder+1
+    window_len = min(11, len(clean_flux))
+    if window_len % 2 == 0:
+        window_len -= 1
+    if window_len > 3:
+        smoothed_flux = scipy_signal.savgol_filter(clean_flux, window_length=window_len, polyorder=2)
+    else:
+        smoothed_flux = clean_flux.copy()
+
+    # Phase-fold and mask transit windows
+    transit_duration_days = transit_duration_hours / 24.0
+    phase = (time - epoch + 0.5 * period) % period - 0.5 * period
+    in_transit_mask = np.abs(phase) < (transit_duration_days * 0.75)
+
+    # Replace in-transit points with local linear interpolation before filtering
+    smoothed_for_baseline = smoothed_flux.copy()
+    if in_transit_mask.any() and (~in_transit_mask).sum() > 3:
+        oot_indices = np.where(~in_transit_mask)[0]
+        it_indices = np.where(in_transit_mask)[0]
+        smoothed_for_baseline[it_indices] = np.interp(
+            time[it_indices], time[oot_indices], smoothed_flux[oot_indices]
+        )
+
+    # Broad median filter to absorb stellar rotation
+    time_span = max(time[-1] - time[0], 1.0)
+    window_bins = int(len(time) * (transit_duration_days * 3.0 / time_span))
+    if window_bins % 2 == 0:
+        window_bins += 1
+    kernel_size = max(21, window_bins)
+
+    stellar_baseline = scipy_signal.medfilt(smoothed_for_baseline, kernel_size=kernel_size)
+    # Guard against division by zero
+    stellar_baseline[stellar_baseline == 0] = 1.0
+    stellar_baseline[np.abs(stellar_baseline) < 1e-6] = 1.0
+
+    return clean_flux / stellar_baseline
+
+
+def transit_aware_detrend(
+    time: np.ndarray,
+    flux: np.ndarray,
+    period: float,
+    t0: float,
+    duration: float,
+) -> np.ndarray:
+    """
+    Apply a second-pass transit-aware detrending on an already-wotan-flattened
+    light curve.
+
+    Designed to be called *after* ``detrend_and_normalize()`` to strip residual
+    stellar-rotation modulation that the broad biweight window may have missed,
+    particularly for stars with short rotation periods (< 5 d).
+
+    Parameters
+    ----------
+    time, flux : np.ndarray
+        Already-flattened light curve (output of detrend_and_normalize).
+    period : float
+        Orbital period in days (from a preliminary BLS run).
+    t0 : float
+        Transit epoch in days.
+    duration : float
+        Transit duration in days.
+
+    Returns
+    -------
+    np.ndarray
+        Double-detrended flux array (same shape as input).
+    """
+    transit_duration_hours = duration * 24.0
+    try:
+        flux_2nd = vicious_denoise_and_flatten(time, flux, period, t0, transit_duration_hours)
+        # Sanity check: if the result is wildly off scale, return original
+        if np.nanstd(flux_2nd) > 5 * np.nanstd(flux) or not np.all(np.isfinite(flux_2nd)):
+            logger.warning("transit_aware_detrend: second-pass result failed sanity check; using original.")
+            return flux
+        return flux_2nd
+    except Exception as exc:
+        logger.warning(f"transit_aware_detrend failed ({exc}); using original flux.")
+        return flux
 
 
 def bin_phase_curve(

@@ -52,7 +52,7 @@ async def run_pipeline(tic_id: str, sector: Optional[int], job_id: str) -> dict:
     Returns the complete result dict on success, raises on failure.
     """
     from utils.ingest import download_lightcurve
-    from utils.preprocess import detrend_and_normalize, phase_fold
+    from utils.preprocess import detrend_and_normalize, phase_fold, transit_aware_detrend
     from utils.detect import run_bls, check_period_aliasing
     from utils.classify import classify_signal
     from utils.fit import fit_transit_model
@@ -89,9 +89,43 @@ async def run_pipeline(tic_id: str, sector: Optional[int], job_id: str) -> dict:
         time_flat, flux_flat, flux_err_flat, trend = await asyncio.get_event_loop().run_in_executor(
             None, lambda: detrend_and_normalize(time_raw, flux_raw, flux_err_raw)
         )
+
+        # Second-pass: transit-aware detrending to strip residual stellar rotation.
+        # Run a fast, coarse BLS (500 periods, 3 durations) just to obtain a
+        # preliminary period and epoch for the transit-window mask.  This coarse
+        # result is NOT reported — only used to protect transit walls from the
+        # broad median filter.
+        try:
+            from astropy.timeseries import BoxLeastSquares
+            import astropy.units as u
+
+            _coarse_durations = np.array([1/24, 3/24, 6/24])
+            _safe_min = max(0.5, float(np.max(_coarse_durations)) + 0.01)
+            _coarse_grid = np.linspace(_safe_min, 27.0, 500)
+            _bls_coarse = BoxLeastSquares(time_flat, flux_flat, dy=flux_err_flat)
+            _pg_coarse = _bls_coarse.power(_coarse_grid, _coarse_durations, objective="snr")
+            _ci = int(np.argmax(_pg_coarse.power))
+            _coarse_period = float(_pg_coarse.period[_ci])
+            _coarse_t0 = float(_pg_coarse.transit_time[_ci])
+            _coarse_dur = float(_pg_coarse.duration[_ci])
+
+            flux_flat = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: transit_aware_detrend(
+                    time_flat, flux_flat, _coarse_period, _coarse_t0, _coarse_dur
+                ),
+            )
+            logger.info(
+                f"[{job_id[:8]}] Second-pass detrend applied "
+                f"(coarse period={_coarse_period:.3f} d)"
+            )
+        except Exception as _e:
+            logger.warning(f"[{job_id[:8]}] Second-pass detrend skipped: {_e}")
+
         stage_times["PREPROCESS"] = round(time_mod.time() - t0, 2)
         _set_stage(job_id, "PREPROCESS", 40)
         JOBS[job_id]["elapsed"] = dict(stage_times)
+
 
         # ── Stage 3: BLS ──────────────────────────────────────────────────
         _set_stage(job_id, "BLS", 42)

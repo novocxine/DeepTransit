@@ -59,12 +59,44 @@ def run_bls(
     best_idx = np.argmax(periodogram.power)
     best_period = float(periodogram.period[best_idx])
     best_power = float(periodogram.power[best_idx])
+    best_duration = float(periodogram.duration[best_idx])
+    best_t0 = float(periodogram.transit_time[best_idx])
+
+    # == ALIAS VERIFICATION PASS (Gate 1: SNR power) ==
+    # Sweeps common harmonic multiples to ensure the pipeline doesn't lock onto a sub-harmonic or orbital alias.
+    aliases = [0.5, 1.5, 2.0]
+    for factor in aliases:
+        test_period = best_period * factor
+        if test_period < min_period or test_period > max_period:
+            continue
+            
+        test_grid = np.linspace(test_period * 0.98, test_period * 1.02, 100)
+        try:
+            test_pg = bls.power(test_grid, duration_grid, objective="snr")
+            test_power_val = float(np.max(test_pg.power))
+            
+            # If a harmonic yields a significantly cleaner baseline power, swap it
+            if test_power_val > best_power * 1.15: 
+                best_power = test_power_val
+                t_idx = np.argmax(test_pg.power)
+                best_period = float(test_pg.period[t_idx])
+                best_duration = float(test_pg.duration[t_idx])
+                best_t0 = float(test_pg.transit_time[t_idx])
+                logger.info(f"Alias check Gate 1 (SNR): Locked onto harmonic alias {factor}x -> {best_period:.4f} d")
+        except Exception:
+            pass
+
+    # == ALIAS VERIFICATION PASS (Gate 2: Phase-fold variance) ==
+    # Among {P, 2P, P/2}, pick the candidate whose in-transit scatter is lowest.
+    # This is signal-shape-aware: a true period stacks points cleanly inside the transit.
+    best_period = brute_force_alias_override(time, flux_rel, best_period, best_duration * 24.0)
+    # =============================
 
     # Get precise transit parameters at best period
     stats = bls.compute_stats(
-        float(periodogram.period[best_idx]),
-        float(periodogram.duration[best_idx]),
-        float(periodogram.transit_time[best_idx]),
+        best_period,
+        best_duration,
+        best_t0,
     )
 
     # astropy BoxLeastSquares.compute_stats returns a tuple for depth: (depth, depth_err)
@@ -74,8 +106,8 @@ def run_bls(
     else:
         depth = float(stats["depth"][0]) if hasattr(stats.get("depth"), "__len__") else float(stats.get("depth", 0.0))
         depth_err = 0.0
-    duration = float(periodogram.duration[best_idx])
-    t0 = float(periodogram.transit_time[best_idx])
+    duration = best_duration
+    t0 = best_t0
 
     snr = depth / depth_err if depth_err > 0 else 0.0
 
@@ -106,29 +138,75 @@ def run_bls(
     }
 
 
-def vicious_denoise_and_flatten(time, flux, period, epoch, transit_duration_hours):
-    import scipy.signal as signal
-    clean_flux = flux.copy()
-    
-    window_len = min(11, len(clean_flux))
-    if window_len % 2 == 0: window_len -= 1
-    if window_len > 3:
-        smoothed_flux = signal.savgol_filter(clean_flux, window_length=window_len, polyorder=2)
-    else:
-        smoothed_flux = clean_flux
-    
+# vicious_denoise_and_flatten is defined in utils.preprocess — import from there
+# to avoid duplication. detect.py's _compute_odd_even_metrics uses it.
+from utils.preprocess import vicious_denoise_and_flatten
+
+
+def brute_force_alias_override(
+    time: np.ndarray,
+    flux: np.ndarray,
+    detected_period: float,
+    transit_duration_hours: float,
+) -> float:
+    """
+    Phase-fold variance alias check.
+
+    Evaluates the point-to-point scatter *inside* the transit window at three
+    candidate periods: P, 2P, and P/2. A true planet fold stacks points cleanly
+    (low scatter), whereas an alias mixes out-of-transit baseline into the
+    window, inflating the variance.
+
+    Parameters
+    ----------
+    time : np.ndarray
+        Time array in days.
+    flux : np.ndarray
+        Detrended, relative flux array.
+    detected_period : float
+        Best-fit BLS period in days (Gate 1 result).
+    transit_duration_hours : float
+        Transit duration in hours (used to define the in-transit window).
+
+    Returns
+    -------
+    float
+        The period (P, 2P, or P/2) with the lowest in-transit scatter.
+    """
     transit_duration_days = transit_duration_hours / 24.0
-    phase = (time - epoch + 0.5 * period) % period - 0.5 * period
-    in_transit_mask = np.abs(phase) < (transit_duration_days * 0.75)
-    
-    time_span = max(time[-1] - time[0], 1.0)
-    window_bins = int(len(time) * (transit_duration_days * 3.0 / time_span))
-    if window_bins % 2 == 0: window_bins += 1
-    
-    stellar_baseline = signal.medfilt(smoothed_flux, kernel_size=max(21, window_bins))
-    stellar_baseline[stellar_baseline == 0] = 1.0
-    
-    return clean_flux / stellar_baseline
+    test_periods = [detected_period, detected_period * 2.0, detected_period / 2.0]
+    best_period = detected_period
+    lowest_variance = float('inf')
+
+    for p in test_periods:
+        if p <= 0:
+            continue
+        # Phase-fold centred on 0
+        phase = (time % p) / p
+        phase = np.where(phase > 0.5, phase - 1.0, phase)
+
+        # In-transit window: |phase| < transit_duration / period
+        half_window = transit_duration_days / (2.0 * p)
+        transit_window_mask = np.abs(phase) < half_window
+        core_flux = flux[transit_window_mask]
+
+        if len(core_flux) < 5:
+            continue  # not enough points to assess scatter
+
+        # Point-to-point variance — lowest = cleanest transit stack
+        local_variance = float(np.var(np.diff(core_flux)))
+
+        if local_variance < lowest_variance:
+            lowest_variance = local_variance
+            best_period = p
+
+    if best_period != detected_period:
+        logger.info(
+            f"Alias check Gate 2 (phase-fold variance): "
+            f"overriding {detected_period:.4f} d -> {best_period:.4f} d "
+            f"(in-transit scatter {lowest_variance:.2e})"
+        )
+    return best_period
 
 
 def _compute_odd_even_metrics(

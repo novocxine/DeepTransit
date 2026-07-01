@@ -254,6 +254,33 @@ async def get_plot(tic_id: str, sector: int = Query(1)):
     """Serve the matplotlib report PNG."""
     clean = _tic_clean(tic_id)
     report_path = os.path.join(OUTPUTS_DIR, f"TIC{clean}_s{sector}.png")
+    
+    if not os.path.exists(report_path):
+        # Try to generate on the fly for demo targets
+        demo = get_demo_result(clean)
+        if demo is not None:
+            try:
+                import numpy as np
+                from utils.visualize import plot_full_report
+                
+                time_arr = np.array(demo["lightcurve"]["time"])
+                flux_arr = np.array(demo["lightcurve"]["flux"])
+                
+                plot_full_report(
+                    tic_id=clean,
+                    sector=sector,
+                    time_raw=time_arr,
+                    flux_raw=flux_arr,
+                    time_flat=time_arr,
+                    flux_flat=flux_arr,
+                    bls_result=demo["bls"],
+                    fit_result=demo["fit"],
+                    classification=demo,
+                    output_dir=OUTPUTS_DIR,
+                )
+            except Exception as e:
+                logger.error(f"Failed to generate demo plot for TIC {clean}: {e}")
+                
     if not os.path.exists(report_path):
         raise HTTPException(
             status_code=404,
