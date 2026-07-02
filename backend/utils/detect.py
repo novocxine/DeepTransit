@@ -89,7 +89,7 @@ def run_bls(
     # == ALIAS VERIFICATION PASS (Gate 2: Phase-fold variance) ==
     # Among {P, 2P, P/2}, pick the candidate whose in-transit scatter is lowest.
     # This is signal-shape-aware: a true period stacks points cleanly inside the transit.
-    best_period = brute_force_alias_override(time, flux_rel, best_period, best_duration * 24.0)
+    best_period, best_t0 = brute_force_alias_override(time, flux_rel, best_period, best_t0, best_duration * 24.0)
     # =============================
 
     # Get precise transit parameters at best period
@@ -147,8 +147,9 @@ def brute_force_alias_override(
     time: np.ndarray,
     flux: np.ndarray,
     detected_period: float,
+    detected_t0: float,
     transit_duration_hours: float,
-) -> float:
+) -> tuple[float, float]:
     """
     Phase-fold variance alias check.
 
@@ -165,40 +166,61 @@ def brute_force_alias_override(
         Detrended, relative flux array.
     detected_period : float
         Best-fit BLS period in days (Gate 1 result).
+    detected_t0 : float
+        Best-fit transit epoch.
     transit_duration_hours : float
         Transit duration in hours (used to define the in-transit window).
 
     Returns
     -------
-    float
-        The period (P, 2P, or P/2) with the lowest in-transit scatter.
+    tuple[float, float]
+        (best_period, best_t0)
     """
     transit_duration_days = transit_duration_hours / 24.0
     test_periods = [detected_period, detected_period * 2.0, detected_period / 2.0]
+    
     best_period = detected_period
+    best_t0 = detected_t0
     lowest_variance = float('inf')
 
     for p in test_periods:
         if p <= 0:
             continue
-        # Phase-fold centred on 0
-        phase = (time % p) / p
-        phase = np.where(phase > 0.5, phase - 1.0, phase)
+            
+        t0_candidates = [detected_t0]
+        if p > detected_period * 1.1:
+            t0_candidates.append(detected_t0 + detected_period)
+            
+        best_local_var = float('inf')
+        best_local_t0 = detected_t0
+        for t0_cand in t0_candidates:
+            # Phase-fold centred on t0_cand
+            phase = ((time - t0_cand) % p) / p
+            phase = np.where(phase > 0.5, phase - 1.0, phase)
 
-        # In-transit window: |phase| < transit_duration / period
-        half_window = transit_duration_days / (2.0 * p)
-        transit_window_mask = np.abs(phase) < half_window
-        core_flux = flux[transit_window_mask]
-
-        if len(core_flux) < 5:
-            continue  # not enough points to assess scatter
-
-        # Point-to-point variance — lowest = cleanest transit stack
-        local_variance = float(np.var(np.diff(core_flux)))
-
-        if local_variance < lowest_variance:
-            lowest_variance = local_variance
+            # In-transit window
+            half_window = transit_duration_days / (2.0 * p)
+            transit_window_mask = np.abs(phase) < half_window
+            
+            if transit_window_mask.sum() < 5:
+                continue
+                
+            core_flux = flux[transit_window_mask]
+            core_phase = phase[transit_window_mask]
+            
+            # Sort by phase to get consecutive points in the phase-folded light curve
+            sort_idx = np.argsort(core_phase)
+            core_flux_sorted = core_flux[sort_idx]
+            
+            local_variance = float(np.var(np.diff(core_flux_sorted)))
+            if local_variance < best_local_var:
+                best_local_var = local_variance
+                best_local_t0 = t0_cand
+                
+        if best_local_var < lowest_variance * 0.8:  # Require 20% improvement to prevent random subset preference
+            lowest_variance = best_local_var
             best_period = p
+            best_t0 = best_local_t0
 
     if best_period != detected_period:
         logger.info(
@@ -206,7 +228,7 @@ def brute_force_alias_override(
             f"overriding {detected_period:.4f} d -> {best_period:.4f} d "
             f"(in-transit scatter {lowest_variance:.2e})"
         )
-    return best_period
+    return best_period, best_t0
 
 
 def _compute_odd_even_metrics(
@@ -246,12 +268,16 @@ def _compute_odd_even_metrics(
     if not odd_fluxes or not even_fluxes:
         return 0.0, 0.0, 0.0
 
-    # Focus purely on the minimum dip points (Fix A)
-    odd_transit_min = np.percentile(odd_fluxes, 5)
-    even_transit_min = np.percentile(even_fluxes, 5)
+    # Focus on the median of the in-transit points to avoid noise floor artifacts
+    odd_transit_min = np.median(odd_fluxes)
+    even_transit_min = np.median(even_fluxes)
     
     odd_depth = 1.0 - odd_transit_min
     even_depth = 1.0 - even_transit_min
+
+    # If depth is negative (median is above baseline), clamp to 0
+    odd_depth = max(0.0, odd_depth)
+    even_depth = max(0.0, even_depth)
 
     denom = max(odd_depth, even_depth)
     if denom <= 0:
